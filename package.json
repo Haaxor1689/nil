@@ -79,5 +79,8 @@
 			]
 		}
 	},
-	"prettier": "@haaxor1689/prettier-config"
+	"prettier": "@haaxor1689/prettier-config",
+	"publishConfig": {
+		"access": "public"
+	}
 }
