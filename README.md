@@ -3,7 +3,7 @@ TypeScript-first binary data parsing library with static type inference. Heavily
 ## Installation
 
 ```
-npm install nil
+npm install @haaxor1689/nil
 ```
 
 ## Basic usage
@@ -11,7 +11,7 @@ npm install nil
 Creating a simple string schema
 
 ```ts
-import { n } from 'nil';
+import { n } from '@haaxor1689/nil';
 
 // Create schema for string with length of 14 characters
 const mySchema = n.string(14);
@@ -45,7 +45,7 @@ User.fromBuffer(buffer);
 ## Primitives
 
 ```ts
-import { n } from 'nil';
+import { n } from '@haaxor1689/nil';
 
 // boolean
 n.bool();
@@ -70,7 +70,7 @@ n.uint64();
 By default, all numbers are assumed to be in little-endian byte order. You can change this by using the `.be()` option:
 
 ```ts
-import { n } from 'nil';
+import { n } from '@haaxor1689/nil';
 
 // Will be read in big-endian byte order
 n.int32().be();
@@ -83,7 +83,7 @@ n.int32().be();
 Since we are dealing with binary data, there are no optional properties and **order of the attributes matters**. All values are read in order they were declared in.
 
 ```ts
-import { n } from 'nil';
+import { n } from '@haaxor1689/nil';
 
 // Declare object schema with given shape
 const User = n.object({
@@ -115,7 +115,7 @@ struct User {
 All array-like types must have a known size. It can either be provided as a constant, or by referencing value from surrounding context.
 
 ```ts
-import { n } from 'nil';
+import { n } from '@haaxor1689/nil';
 
 // Constant size
 n.buffer(10); // Uint8Array

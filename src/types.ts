@@ -290,7 +290,7 @@ class NilArray<T extends NilTypeAny> extends NilType<
 	size(value?: T['_input'][], ctx?: ParseContext) {
 		const { length, inBytes } = this._def;
 
-		const elementSize = this.elementSize(value, ctx);
+		const elementSize = this.#elementSize(value, ctx);
 		let byteLength = 0;
 		if (typeof length !== 'number') {
 			const resolved = resolvePath(length, ctx);
@@ -312,7 +312,7 @@ class NilArray<T extends NilTypeAny> extends NilType<
 		const { schema } = this._def;
 		const value: T['_input'][] = [];
 
-		const elementSize = this.elementSize(undefined, ctx);
+		const elementSize = this.#elementSize(undefined, ctx);
 		const size = this.size(undefined, ctx);
 
 		let offset = 0;
@@ -338,7 +338,7 @@ class NilArray<T extends NilTypeAny> extends NilType<
 	_encode(data: DataView, value: T['_input'][], ctx?: ParseContext) {
 		const { schema } = this._def;
 
-		const elementSize = this.elementSize(undefined, ctx);
+		const elementSize = this.#elementSize(undefined, ctx);
 
 		let offset = 0;
 		value.forEach((v, i) => {
@@ -384,7 +384,7 @@ class NilArray<T extends NilTypeAny> extends NilType<
 		});
 	}
 
-	private elementSize(value?: T['_input'][], ctx?: ParseContext) {
+	#elementSize(value?: T['_input'][], ctx?: ParseContext) {
 		const { schema } = this._def;
 		const newCtx: ParseContext = {
 			// FIXME: Types
