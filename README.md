@@ -228,6 +228,24 @@ type MySchema = z.output<typeof MySchema>;
 MySchema.toBuffer([1, 2, 3, 4]);
 ```
 
+You can also access the current context when creating transformations to reference other attributes from the parent type (if any). The easiest way to do this is by using the `resolvePath` helper function.
+
+```ts
+const MySchema = n.object({
+	hasAlpha: n.bool(),
+	data: n.array(n.int8(), 'fill').transform(
+		(v, ctx) => {
+			n.resolvePath(['hasAlpha'], ctx); // will hold value of `hasAlpha` attribute from parent object
+			return v;
+		},
+		(v, ctx) => {
+			n.resolvePath(['hasAlpha'], ctx); // will hold value of `hasAlpha` attribute from parent object
+			return v;
+		}
+	)
+});
+```
+
 ### `.fromBuffer`
 
 `.fromBuffer(data: Uint8Array): Output`
