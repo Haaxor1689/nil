@@ -200,16 +200,16 @@ const Level = n.enum(n.int8(), ['LOW', 'MEDIUM', 'HIGH']);
 Level.options; // ["LOW", "MEDIUM", "HIGH"]
 ```
 
-## Never
+## Undefined
 
-If you need a placeholder that represents 0 bytes in the binary data, you can use the never type for that:
+If you need a placeholder that represents 0 bytes in the binary data, you can use the undefined type for that:
 
 ```ts
 import { n } from '@haaxor1689/nil';
 
 // Declare object schema with given shape
 const User = n.object({
-	empty: n.never(), // represents 0 bytes in buffer
+	empty: n.undefined(), // represents 0 bytes in buffer
 	active: n.int32()
 });
 
@@ -218,7 +218,7 @@ type User = n.output<typeof User>;
 
 // Equivalent to
 type User = {
-	empty: never;
+	empty: undefined;
 	active: boolean;
 };
 ```

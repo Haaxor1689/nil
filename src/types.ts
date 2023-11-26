@@ -597,13 +597,13 @@ export class NilEnum<
 	}
 }
 
-export class NilNever extends NilType<never> {
+export class NilUndefined extends NilType<undefined> {
 	size() {
 		return 0;
 	}
 
 	_decode() {
-		return undefined as never;
+		return undefined;
 	}
 
 	_encode() {
@@ -636,7 +636,7 @@ const enum_ = <
 	type: T,
 	options: O
 ): NilEnum<T, O> => new NilEnum({ type, options });
-const never = () => new NilNever({});
+const undefined_ = () => new NilUndefined({});
 
 export {
 	bool,
@@ -655,5 +655,5 @@ export {
 	object,
 	buffer,
 	enum_ as enum,
-	never
+	undefined_ as undefined
 };
