@@ -80,7 +80,7 @@ n.int32().be();
 
 ## Objects
 
-Since we are dealing with binary data, there are no optional properties and **order of the attributes matters**. All values are read in order they were declared in.
+Since we are dealing with binary data, there are no optional properties, and the **order of the attributes matters**. All values are read in the order they were declared in.
 
 ```ts
 import { n } from '@haaxor1689/nil';
@@ -101,7 +101,7 @@ type User = {
 };
 ```
 
-Above object schema would be equivalent to this this **C** struct definition:
+The above object schema would be equivalent to this **C** struct definition:
 
 ```c
 struct User {
@@ -139,6 +139,59 @@ n.object({
 		['itemCount']
 	)
 });
+
+// Set size to fill source
+n.buffer('fill');
+n.array(n.int16(), 'fill');
+```
+
+> Note that any dynamically sized array-like type will **fill** the whole remaining space in the buffer so they **should always be at the end**.
+
+### Length in bytes
+
+The `.bytes()` option can be used to interpret a given length in bytes instead of the count of elements.
+
+```ts
+// Size will be 256 bytes
+n.buffer(256).bytes();
+n.string(256).bytes();
+n.array(n.int8, 256).bytes();
+```
+
+## Enums
+
+You can load **C** enum values as a string literal union. Only default numbered **C** enums are supported now.
+
+```ts
+// Declare enum schema with given options
+const Level = n.enum(n.int8(), ['LOW', 'MEDIUM', 'HIGH']);
+
+// Extract the output type
+type Level = n.output<typeof Level>;
+
+// Equivalent to
+type Level = 'LOW' | 'MEDIUM' | 'HIGH';
+```
+
+The above enum schema would be equivalent to this **C** enum definition:
+
+```c
+enum Level {
+  LOW,
+  MEDIUM,
+  HIGH
+}
+```
+
+### `.options`
+
+You can access the tuple used to create a given enum with `.options`.
+
+```ts
+// Declare enum schema with given options
+const Level = n.enum(n.int8(), ['LOW', 'MEDIUM', 'HIGH']);
+
+Level.options; // ["LOW", "MEDIUM", "HIGH"]
 ```
 
 ## Schema methods
@@ -154,7 +207,7 @@ All Nil schemas contain these methods.
 )
 ```
 
-You can provide custom transformation functions for your schemas that will change the output both when parsing from raw buffer and creating a buffer from JS object.
+You can provide custom transformation functions for your schemas that will change the output both when parsing from the raw buffer and creating a buffer from the JS object.
 
 ```ts
 // Define transform that handles calculating `itemCount`
@@ -185,15 +238,13 @@ Tries to parse given buffer into output type of used schema. Throws errors on fa
 
 `.toBuffer(value: Output): Uint8Array`
 
-Tries to serialize given object into a buffer.
+Tries to serialize a given object into a buffer.
 
 ## TODO
 
 - Literal types
-- Enums
 - Unions
 - Better error handling
-- Dynamic length null terminated strings
-- Dynamic length array-like schemas
-- Don't allow smaller arrays then their defined constant size
+- Dynamic length null-terminated strings
+- Don't allow smaller arrays than their defined constant size
 - Tests

@@ -223,7 +223,7 @@ export class NilBigint extends NilType<bigint, NilBigintDef> {
 }
 
 type NilStringDef = {
-	length: number | ParsePath;
+	length: number | ParsePath | 'fill';
 	inBytes?: boolean;
 	encoding?: string;
 };
@@ -233,7 +233,9 @@ export class NilString extends NilType<string, NilStringDef> {
 		const { length, inBytes } = this._def;
 
 		let byteLength = 0;
-		if (typeof length !== 'number') {
+		if (length === 'fill') {
+			byteLength = !value ? -1 : value?.length;
+		} else if (typeof length !== 'number') {
 			const resolved = resolvePath(length, ctx);
 			if (!resolved || typeof resolved !== 'number')
 				throw new Error(
@@ -278,7 +280,7 @@ export class NilString extends NilType<string, NilStringDef> {
 
 type NilArrayDef<T extends NilTypeAny = NilTypeAny> = {
 	schema: T;
-	length: number | ParsePath;
+	length: number | ParsePath | 'fill';
 	inBytes?: boolean;
 };
 
@@ -291,8 +293,12 @@ class NilArray<T extends NilTypeAny> extends NilType<
 		const { length, inBytes } = this._def;
 
 		const elementSize = this.#elementSize(value, ctx);
+		if (elementSize === -1) return -1;
+
 		let byteLength = 0;
-		if (typeof length !== 'number') {
+		if (length === 'fill') {
+			byteLength = !value ? -1 : value?.length * elementSize;
+		} else if (typeof length !== 'number') {
 			const resolved = resolvePath(length, ctx);
 			if (!resolved || typeof resolved !== 'number')
 				throw new Error(
@@ -314,9 +320,10 @@ class NilArray<T extends NilTypeAny> extends NilType<
 
 		const elementSize = this.#elementSize(undefined, ctx);
 		const size = this.size(undefined, ctx);
+		const step = size === -1 ? data.byteLength : size;
 
 		let offset = 0;
-		while (offset < size) {
+		while (offset < step) {
 			const newCtx: ParseContext = {
 				// FIXME: Types
 				value: value as never,
@@ -420,14 +427,15 @@ class NilObject<
 	size(value?: Input, ctx?: ParseContext) {
 		const { shape } = this._def;
 		return Object.entries(shape).reduce((acc, [k, v]) => {
+			if (acc === -1) return -1;
 			const newCtx: ParseContext = {
 				// FIXME: Types
 				value: value as never,
 				path: [...(ctx?.path ?? []), k],
 				parent: ctx
 			};
-
-			return acc + v.size(value?.[k as keyof Input], newCtx);
+			const size = v.size(value?.[k as keyof Input], newCtx);
+			return size === -1 ? -1 : acc + size;
 		}, 0);
 	}
 
@@ -443,9 +451,10 @@ class NilObject<
 				parent: ctx
 			};
 			const size = v.size(value[k as keyof Input], newCtx);
-			const view = new DataView(data.buffer, data.byteOffset + offset, size);
+			const step = size === -1 ? data.byteLength - offset : size;
+			const view = new DataView(data.buffer, data.byteOffset + offset, step);
 			value[k as keyof Input] = v._decode(view, newCtx);
-			offset += size;
+			offset += step;
 		});
 
 		return value as Input;
@@ -497,16 +506,18 @@ class NilObject<
 }
 
 type NilBufferDef = {
-	length: number | ParsePath;
+	length: number | ParsePath | 'fill';
 	inBytes?: boolean;
 };
 
 class NilBuffer extends NilType<Uint8Array, NilBufferDef> {
-	size(_?: Uint8Array, ctx?: ParseContext) {
+	size(value?: Uint8Array, ctx?: ParseContext) {
 		const { length, inBytes } = this._def;
 
 		let byteLength = 0;
-		if (typeof length !== 'number') {
+		if (length === 'fill') {
+			byteLength = value?.length ?? -1;
+		} else if (typeof length !== 'number') {
 			const resolved = resolvePath(length, ctx);
 			if (!resolved || typeof resolved !== 'number')
 				throw new Error(
@@ -542,6 +553,50 @@ class NilBuffer extends NilType<Uint8Array, NilBufferDef> {
 	}
 }
 
+type NilEnumDef<T extends NilNumber, O extends readonly string[] | string[]> = {
+	type: T;
+	options: O;
+};
+
+export class NilEnum<
+	T extends NilNumber,
+	O extends readonly string[] | string[]
+> extends NilType<O[number], NilEnumDef<T, O>, T['_input']> {
+	size() {
+		return this._def.type.size();
+	}
+
+	_decode(data: DataView) {
+		return this._def.type._decode(data);
+	}
+
+	_encode(data: DataView, value: number) {
+		this._def.type._encode(data, value);
+	}
+
+	_afterDecode(value: T['_input']): O[number] {
+		const option = this._def.options[value];
+		if (option === undefined)
+			throw new Error(
+				`Invalid index "${value}" for enum "[${this._def.options}]"`
+			);
+		return option;
+	}
+
+	_beforeEncode(value: O[number]): T['_input'] {
+		const index = this._def.options.indexOf(value);
+		if (index === -1)
+			throw new Error(
+				`Invalid value "${value}" for enum "[${this._def.options}]"`
+			);
+		return index;
+	}
+
+	get options() {
+		return this._def.options;
+	}
+}
+
 const bool = () => new NilBool({});
 const int8 = () => new NilNumber({ bytes: 1, signed: true });
 const uint8 = () => new NilNumber({ bytes: 1 });
@@ -560,6 +615,13 @@ const array = <T extends NilTypeAny>(
 ) => new NilArray({ schema, length });
 const object = <T extends NilRawShape>(shape: T) => new NilObject({ shape });
 const buffer = (length: NilBufferDef['length']) => new NilBuffer({ length });
+const enum_ = <
+	T extends NilNumber,
+	const O extends readonly string[] | string[]
+>(
+	type: T,
+	options: O
+): NilEnum<T, O> => new NilEnum({ type, options });
 
 export {
 	bool,
@@ -576,5 +638,6 @@ export {
 	string,
 	array,
 	object,
-	buffer
+	buffer,
+	enum_ as enum
 };
