@@ -597,6 +597,20 @@ export class NilEnum<
 	}
 }
 
+export class NilNever extends NilType<never> {
+	size() {
+		return 0;
+	}
+
+	_decode() {
+		return undefined as never;
+	}
+
+	_encode() {
+		// Do nothing
+	}
+}
+
 const bool = () => new NilBool({});
 const int8 = () => new NilNumber({ bytes: 1, signed: true });
 const uint8 = () => new NilNumber({ bytes: 1 });
@@ -622,6 +636,7 @@ const enum_ = <
 	type: T,
 	options: O
 ): NilEnum<T, O> => new NilEnum({ type, options });
+const never = () => new NilNever({});
 
 export {
 	bool,
@@ -639,5 +654,6 @@ export {
 	array,
 	object,
 	buffer,
-	enum_ as enum
+	enum_ as enum,
+	never
 };

@@ -87,7 +87,7 @@ import { n } from '@haaxor1689/nil';
 
 // Declare object schema with given shape
 const User = n.object({
-	age: n.uint16(),
+	rank: n.uint16(),
 	active: n.int32()
 });
 
@@ -96,7 +96,7 @@ type User = n.output<typeof User>;
 
 // Equivalent to
 type User = {
-	age: number;
+	rank: number;
 	active: boolean;
 };
 ```
@@ -152,6 +152,8 @@ n.array(n.int16(), 'fill');
 The `.bytes()` option can be used to interpret a given length in bytes instead of the count of elements.
 
 ```ts
+import { n } from '@haaxor1689/nil';
+
 // Size will be 256 bytes
 n.buffer(256).bytes();
 n.string(256).bytes();
@@ -163,6 +165,8 @@ n.array(n.int8, 256).bytes();
 You can load **C** enum values as a string literal union. Only default numbered **C** enums are supported now.
 
 ```ts
+import { n } from '@haaxor1689/nil';
+
 // Declare enum schema with given options
 const Level = n.enum(n.int8(), ['LOW', 'MEDIUM', 'HIGH']);
 
@@ -188,10 +192,35 @@ enum Level {
 You can access the tuple used to create a given enum with `.options`.
 
 ```ts
+import { n } from '@haaxor1689/nil';
+
 // Declare enum schema with given options
 const Level = n.enum(n.int8(), ['LOW', 'MEDIUM', 'HIGH']);
 
 Level.options; // ["LOW", "MEDIUM", "HIGH"]
+```
+
+## Never
+
+If you need a placeholder that represents 0 bytes in the binary data, you can use the never type for that:
+
+```ts
+import { n } from '@haaxor1689/nil';
+
+// Declare object schema with given shape
+const User = n.object({
+	empty: n.never(), // represents 0 bytes in buffer
+	active: n.int32()
+});
+
+// Extract the output type
+type User = n.output<typeof User>;
+
+// Equivalent to
+type User = {
+	empty: never;
+	active: boolean;
+};
 ```
 
 ## Schema methods
@@ -210,6 +239,8 @@ All Nil schemas contain these methods.
 You can provide custom transformation functions for your schemas that will change the output both when parsing from the raw buffer and creating a buffer from the JS object.
 
 ```ts
+import { n } from '@haaxor1689/nil';
+
 // Define transform that handles calculating `itemCount`
 const MySchema = n
 	.object({
@@ -217,8 +248,8 @@ const MySchema = n
 		items: n.array(n.int8(), ['itemCount'])
 	})
 	.transform(
-		v => v.items, // Keep only raw items
-		v => ({ itemCount: v.length, items: v }) // Calculate itemCount
+		v => v.items, // keep only raw items
+		v => ({ itemCount: v.length, items: v }) // calculate itemCount
 	);
 
 // Inferred output type is `number[]`
@@ -231,6 +262,8 @@ MySchema.toBuffer([1, 2, 3, 4]);
 You can also access the current context when creating transformations to reference other attributes from the parent type (if any). The easiest way to do this is by using the `resolvePath` helper function.
 
 ```ts
+import { n } from '@haaxor1689/nil';
+
 const MySchema = n.object({
 	hasAlpha: n.bool(),
 	data: n.array(n.int8(), 'fill').transform(
@@ -248,13 +281,17 @@ const MySchema = n.object({
 
 ### `.fromBuffer`
 
-`.fromBuffer(data: Uint8Array): Output`
+```ts
+.fromBuffer(data: Uint8Array): Output
+```
 
 Tries to parse given buffer into output type of used schema. Throws errors on failure.
 
 ### `.toBuffer`
 
-`.toBuffer(value: Output): Uint8Array`
+```ts
+.toBuffer(value: Output): Uint8Array
+```
 
 Tries to serialize a given object into a buffer.
 
