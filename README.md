@@ -17,10 +17,10 @@ import { n } from '@haaxor1689/nil';
 const mySchema = n.string(14);
 
 // Parse into Uint8Array
-const buffer = mySchema.toBuffer('Hello world!!!');
+const buffer = await mySchema.toBuffer('Hello world!!!');
 
 // Prase from Uint8Array
-const parsed = mySchema.fromBuffer(buffer);
+const parsed = await mySchema.fromBuffer(buffer);
 ```
 
 Creating an object schema
@@ -36,10 +36,10 @@ const User = n.object({
 type User = n.output<typeof User>;
 // { username: string; age: number; active: boolean; }
 
-const buffer = User.toBuffer({ username: 'Jane', age: 30, active: true });
+const buffer = await User.toBuffer({ username: 'Jane', age: 30, active: true });
 
 // Prase from Uint8Array
-User.fromBuffer(buffer);
+await User.fromBuffer(buffer);
 ```
 
 ## Primitives
@@ -231,8 +231,8 @@ All Nil schemas contain these methods.
 
 ```ts
 .transform(
-  afterDecode: (v: Input, ctx?: ParseContext) => Output,
-  beforeEncode: (v: Output, ctx?: ParseContext) => Input
+  afterDecode: (v: Input, ctx?: ParseContext) => Promise<Output>,
+  beforeEncode: (v: Output, ctx?: ParseContext) => Promise<Input>
 )
 ```
 
@@ -256,7 +256,7 @@ const MySchema = n
 type MySchema = z.output<typeof MySchema>;
 
 // Resulting buffer will start with correct `itemCount` number
-MySchema.toBuffer([1, 2, 3, 4]);
+await MySchema.toBuffer([1, 2, 3, 4]);
 ```
 
 You can also access the current context when creating transformations to reference other attributes from the parent type (if any). The easiest way to do this is by using the `resolvePath` helper function.
@@ -282,7 +282,7 @@ const MySchema = n.object({
 ### `.fromBuffer`
 
 ```ts
-.fromBuffer(data: Uint8Array): Output
+.fromBuffer(data: Uint8Array): Promise<Output>
 ```
 
 Tries to parse given buffer into output type of used schema. Throws errors on failure.
@@ -290,7 +290,7 @@ Tries to parse given buffer into output type of used schema. Throws errors on fa
 ### `.toBuffer`
 
 ```ts
-.toBuffer(value: Output): Uint8Array
+.toBuffer(value: Output): Promise<Uint8Array>
 ```
 
 Tries to serialize a given object into a buffer.

@@ -32,24 +32,24 @@ export abstract class NilType<Output = any, Def = object, Input = Output> {
 	abstract _decode(data: DataView, ctx?: ParseContext): Input;
 	abstract _encode(data: DataView, value: Input, ctx?: ParseContext): void;
 
-	_afterDecode(value: Input, _ctx?: ParseContext): Output {
+	async _afterDecode(value: Input, _ctx?: ParseContext): Promise<Output> {
 		return value as never;
 	}
 
-	_beforeEncode(value: Output, _ctx?: ParseContext): Input {
+	async _beforeEncode(value: Output, _ctx?: ParseContext): Promise<Input> {
 		return value as never;
 	}
 
 	abstract size(value?: Input, ctx?: ParseContext): number;
 
-	fromBuffer(data: Uint8Array): Output {
+	async fromBuffer(data: Uint8Array): Promise<Output> {
 		const view = new DataView(data.buffer);
 		const val = this._decode(view);
-		return this._afterDecode(val);
+		return await this._afterDecode(val);
 	}
 
-	toBuffer(value: Output): Uint8Array {
-		const val = this._beforeEncode(value);
+	async toBuffer(value: Output): Promise<Uint8Array> {
+		const val = await this._beforeEncode(value);
 		const buffer = new Uint8Array(this.size(val));
 		const view = new DataView(buffer.buffer);
 		this._encode(view, val);
@@ -89,14 +89,14 @@ class NilEffects<
 		this._def.schema._encode(data, value, ctx);
 	}
 
-	_afterDecode(value: Input, ctx?: ParseContext): Output {
+	async _afterDecode(value: Input, ctx?: ParseContext): Promise<Output> {
 		const { schema } = this._def;
-		return this._def.transform[0](schema._afterDecode(value, ctx), ctx);
+		return this._def.transform[0](await schema._afterDecode(value, ctx), ctx);
 	}
 
-	_beforeEncode(value: Output, ctx?: ParseContext): Input {
+	async _beforeEncode(value: Output, ctx?: ParseContext): Promise<Input> {
 		const { schema } = this._def;
-		return schema._beforeEncode(this._def.transform[1](value, ctx), ctx);
+		return await schema._beforeEncode(this._def.transform[1](value, ctx), ctx);
 	}
 }
 
@@ -365,30 +365,37 @@ class NilArray<T extends NilTypeAny> extends NilType<
 		});
 	}
 
-	_afterDecode(value: T['_input'][], ctx?: ParseContext) {
+	async _afterDecode(value: T['_input'][], ctx?: ParseContext) {
 		const { schema } = this._def;
-		return value.map((v, i) => {
+
+		const arr = [];
+		for (let i = 0; i < value.length; i++) {
+			const v = value[i];
 			const newCtx: ParseContext = {
 				// FIXME: Types
 				value: value as never,
 				path: [...(ctx?.path ?? []), i],
 				parent: ctx
 			};
-			return schema._afterDecode(v, newCtx);
-		});
+			arr.push(await schema._afterDecode(v, newCtx));
+		}
+		return arr;
 	}
 
-	_beforeEncode(value: T['_output'][], ctx?: ParseContext) {
+	async _beforeEncode(value: T['_output'][], ctx?: ParseContext) {
 		const { schema } = this._def;
-		return value.map((v, i) => {
+		const arr = [];
+		for (let i = 0; i < value.length; i++) {
+			const v = value[i];
 			const newCtx: ParseContext = {
 				// FIXME: Types
 				value: value as never,
 				path: [...(ctx?.path ?? []), i],
 				parent: ctx
 			};
-			return schema._beforeEncode(v, newCtx);
-		});
+			arr.push(await schema._beforeEncode(v, newCtx));
+		}
+		return arr;
 	}
 
 	#elementSize(value?: T['_input'][], ctx?: ParseContext) {
@@ -488,7 +495,7 @@ class NilObject<
 				parent: ctx
 			};
 			return v._afterDecode(value[k as keyof Input], newCtx);
-		}) as Output;
+		}) as Promise<Output>;
 	}
 
 	_beforeEncode(value: Output, ctx?: ParseContext) {
@@ -501,7 +508,7 @@ class NilObject<
 				parent: ctx
 			};
 			return v._beforeEncode(value[k as keyof Output], newCtx);
-		}) as Input;
+		}) as Promise<Input>;
 	}
 }
 
@@ -574,7 +581,7 @@ export class NilEnum<
 		this._def.type._encode(data, value);
 	}
 
-	_afterDecode(value: T['_input']): O[number] {
+	async _afterDecode(value: T['_input']) {
 		const option = this._def.options[value];
 		if (option === undefined)
 			throw new Error(
@@ -583,7 +590,7 @@ export class NilEnum<
 		return option;
 	}
 
-	_beforeEncode(value: O[number]): T['_input'] {
+	async _beforeEncode(value: O[number]) {
 		const index = this._def.options.indexOf(value);
 		if (index === -1)
 			throw new Error(
