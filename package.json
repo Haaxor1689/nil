@@ -1,6 +1,6 @@
 {
 	"name": "@haaxor1689/nil",
-	"version": "0.1.5",
+	"version": "0.1.6",
 	"description": "TypeScript-first binary data parsing library with static type inference",
 	"author": "Maroš Beťko <betkomaros@gmail.com>",
 	"repository": {

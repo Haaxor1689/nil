@@ -89,14 +89,20 @@ class NilEffects<
 		this._def.schema._encode(data, value, ctx);
 	}
 
-	async _afterDecode(value: Input, ctx?: ParseContext): Promise<Output> {
+	async _afterDecode(value: Input, ctx?: ParseContext) {
 		const { schema } = this._def;
-		return this._def.transform[0](await schema._afterDecode(value, ctx), ctx);
+		return await this._def.transform[0](
+			await schema._afterDecode(value, ctx),
+			ctx
+		);
 	}
 
-	async _beforeEncode(value: Output, ctx?: ParseContext): Promise<Input> {
+	async _beforeEncode(value: Output, ctx?: ParseContext) {
 		const { schema } = this._def;
-		return await schema._beforeEncode(this._def.transform[1](value, ctx), ctx);
+		return await schema._beforeEncode(
+			await this._def.transform[1](value, ctx),
+			ctx
+		);
 	}
 }
 
@@ -485,30 +491,30 @@ class NilObject<
 		});
 	}
 
-	_afterDecode(value: Input, ctx?: ParseContext) {
+	async _afterDecode(value: Input, ctx?: ParseContext) {
 		const { shape } = this._def;
-		return mapValues(shape, (v, k) => {
+		return (await mapValues(shape, async (v, k) => {
 			const newCtx: ParseContext = {
 				// FIXME: Types
 				value: value as never,
 				path: [...(ctx?.path ?? []), k],
 				parent: ctx
 			};
-			return v._afterDecode(value[k as keyof Input], newCtx);
-		}) as Promise<Output>;
+			return await v._afterDecode(value[k as keyof Input], newCtx);
+		})) as Output;
 	}
 
-	_beforeEncode(value: Output, ctx?: ParseContext) {
+	async _beforeEncode(value: Output, ctx?: ParseContext) {
 		const { shape } = this._def;
-		return mapValues(shape, (v, k) => {
+		return (await mapValues(shape, async (v, k) => {
 			const newCtx: ParseContext = {
 				// FIXME: Types
 				value: value as never,
 				path: [...(ctx?.path ?? []), k],
 				parent: ctx
 			};
-			return v._beforeEncode(value[k as keyof Output], newCtx);
-		}) as Promise<Input>;
+			return await v._beforeEncode(value[k as keyof Output], newCtx);
+		})) as Input;
 	}
 }
 
