@@ -20,8 +20,8 @@ type baseObjectOutputType<Shape extends NilRawShape> = {
 };
 
 type TransformType<Output = any, Input = Output> = [
-	afterDecode: (v: Input, ctx?: ParseContext) => Output,
-	beforeEncode: (v: Output, ctx?: ParseContext) => Input
+	afterDecode: (v: Input, ctx?: ParseContext) => Promise<Output> | Output,
+	beforeEncode: (v: Output, ctx?: ParseContext) => Promise<Input> | Input
 ];
 
 export abstract class NilType<Output = any, Def = object, Input = Output> {
