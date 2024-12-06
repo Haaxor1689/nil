@@ -3,7 +3,11 @@ import {
 	type ParseContext,
 	type ParsePath
 } from './helpers/parseUtil';
-import { mapValues, type addQuestionMarks, type flatten } from './helpers/util';
+import {
+	parallelMap,
+	type addQuestionMarks,
+	type flatten
+} from './helpers/util';
 
 export type NilRawShape = { [k: string]: NilTypeAny };
 export type NilTypeAny = NilType<any, any>;
@@ -493,28 +497,26 @@ class NilObject<
 
 	async _afterDecode(value: Input, ctx?: ParseContext) {
 		const { shape } = this._def;
-		return (await mapValues(shape, async (v, k) => {
-			const newCtx: ParseContext = {
+		return parallelMap(shape, async (v, k) =>
+			v._afterDecode(value[k as keyof Input], {
 				// FIXME: Types
 				value: value as never,
 				path: [...(ctx?.path ?? []), k],
 				parent: ctx
-			};
-			return await v._afterDecode(value[k as keyof Input], newCtx);
-		})) as Output;
+			})
+		) as Promise<Output>;
 	}
 
 	async _beforeEncode(value: Output, ctx?: ParseContext) {
 		const { shape } = this._def;
-		return (await mapValues(shape, async (v, k) => {
-			const newCtx: ParseContext = {
+		return parallelMap(shape, async (v, k) =>
+			v._beforeEncode(value[k as keyof Output], {
 				// FIXME: Types
 				value: value as never,
 				path: [...(ctx?.path ?? []), k],
 				parent: ctx
-			};
-			return await v._beforeEncode(value[k as keyof Output], newCtx);
-		})) as Input;
+			})
+		) as Promise<Input>;
 	}
 }
 
