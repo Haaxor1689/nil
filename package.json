@@ -25,8 +25,7 @@
 		"/index.d.ts"
 	],
 	"scripts": {
-		"clean": "rm -rf lib/*",
-		"build": "npm run clean && npm run build:cjs && npm run build:esm",
+		"build": "npm run build:cjs && npm run build:esm",
 		"build:esm": "rollup --config rollup.config.js",
 		"build:cjs": "tsc -p tsconfig.cjs.json",
 		"build:types": "tsc -p tsconfig.types.json",
@@ -40,6 +39,7 @@
 	"devDependencies": {
 		"@haaxor1689/eslint-config": "^3.0.0",
 		"@haaxor1689/prettier-config": "^3.0.0",
+		"@jest/globals": "^29.4.3",
 		"@rollup/plugin-typescript": "^8.5.0",
 		"@types/jest": "^29.5.10",
 		"@types/lodash-es": "^4.17.12",

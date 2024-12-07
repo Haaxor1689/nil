@@ -1,7 +1,10 @@
 import {
 	resolvePath,
 	type ParseContext,
-	type ParsePath
+	type ParsePath,
+	BeforeEncodeContext,
+	DecodeContext,
+	NilError
 } from './helpers/parseUtil';
 import {
 	parallelMap,
@@ -15,17 +18,17 @@ export type TypeOf<T extends NilType<any, any, any>> = T['_output'];
 export type input<T extends NilType<any, any, any>> = T['_input'];
 export type output<T extends NilType<any, any, any>> = T['_output'];
 
-export type objectOutputType<Shape extends NilRawShape> = flatten<
-	addQuestionMarks<baseObjectOutputType<Shape>>
->;
-
 type baseObjectOutputType<Shape extends NilRawShape> = {
 	[k in keyof Shape]: Shape[k]['_output'];
 };
 
+export type objectOutputType<Shape extends NilRawShape> = flatten<
+	addQuestionMarks<baseObjectOutputType<Shape>>
+>;
+
 type TransformType<Output = any, Input = Output> = [
-	afterDecode: (v: Input, ctx?: ParseContext) => Promise<Output> | Output,
-	beforeEncode: (v: Output, ctx?: ParseContext) => Promise<Input> | Input
+	afterDecode: (ctx: ParseContext<Input>) => Promise<Output> | Output,
+	beforeEncode: (ctx: BeforeEncodeContext<Output>) => Promise<Input> | Input
 ];
 
 export abstract class NilType<Output = any, Def = object, Input = Output> {
@@ -33,30 +36,33 @@ export abstract class NilType<Output = any, Def = object, Input = Output> {
 	readonly _output!: Output;
 	readonly _input!: Input;
 
-	abstract _decode(data: DataView, ctx?: ParseContext): Input;
-	abstract _encode(data: DataView, value: Input, ctx?: ParseContext): void;
+	abstract _decode(ctx: DecodeContext<Input>): Input;
+	abstract _encode(ctx: ParseContext<Input>): void;
 
-	async _afterDecode(value: Input, _ctx?: ParseContext): Promise<Output> {
-		return value as never;
+	async _afterDecode(ctx: ParseContext<Input>): Promise<Output> {
+		return ctx.value as never;
 	}
 
-	async _beforeEncode(value: Output, _ctx?: ParseContext): Promise<Input> {
-		return value as never;
+	async _beforeEncode(ctx: BeforeEncodeContext<Output>): Promise<Input> {
+		return ctx.value as never;
 	}
 
-	abstract size(value?: Input, ctx?: ParseContext): number;
+	abstract size(ctx: BeforeEncodeContext<Input>): number;
 
-	async fromBuffer(data: Uint8Array): Promise<Output> {
-		const view = new DataView(data.buffer);
-		const val = this._decode(view);
-		return await this._afterDecode(val);
+	async fromBuffer(buffer: Uint8Array): Promise<Output> {
+		const data = new DataView(buffer.buffer);
+		const ctx = { path: [], data, offset: 0, size: buffer.length };
+		const value = this._decode(ctx);
+		return this._afterDecode({ ...ctx, value });
 	}
 
-	async toBuffer(value: Output): Promise<Uint8Array> {
-		const val = await this._beforeEncode(value);
-		const buffer = new Uint8Array(this.size(val));
-		const view = new DataView(buffer.buffer);
-		this._encode(view, val);
+	async toBuffer(v: Output): Promise<Uint8Array> {
+		const ctx = { path: [], offset: 0 };
+		const value = await this._beforeEncode({ ...ctx, value: v });
+		const size = this.size({ ...ctx, value });
+		const buffer = new Uint8Array(size);
+		const data = new DataView(buffer.buffer);
+		this._encode({ ...ctx, value, data, size: buffer.length });
 		return buffer;
 	}
 
@@ -81,32 +87,28 @@ class NilEffects<
 	Output = output<T>,
 	Input = input<T>
 > extends NilType<Output, NilEffectsDef<T>, Input> {
-	size(value?: Input, ctx?: ParseContext) {
-		return this._def.schema.size(value, ctx);
+	size(ctx: BeforeEncodeContext<Input>) {
+		return this._def.schema.size(ctx);
 	}
 
-	_decode(data: DataView, ctx?: ParseContext) {
-		return this._def.schema._decode(data, ctx);
+	_decode(ctx: ParseContext) {
+		return this._def.schema._decode(ctx);
 	}
 
-	_encode(data: DataView, value: Input, ctx?: ParseContext) {
-		this._def.schema._encode(data, value, ctx);
+	_encode(ctx: ParseContext<Input>) {
+		this._def.schema._encode(ctx);
 	}
 
-	async _afterDecode(value: Input, ctx?: ParseContext) {
+	async _afterDecode(ctx: ParseContext<Input>): Promise<Output> {
 		const { schema } = this._def;
-		return await this._def.transform[0](
-			await schema._afterDecode(value, ctx),
-			ctx
-		);
+		const value = await schema._afterDecode(ctx);
+		return this._def.transform[0]({ ...ctx, value });
 	}
 
-	async _beforeEncode(value: Output, ctx?: ParseContext) {
+	async _beforeEncode(ctx: BeforeEncodeContext<Output>): Promise<Input> {
 		const { schema } = this._def;
-		return await schema._beforeEncode(
-			await this._def.transform[1](value, ctx),
-			ctx
-		);
+		const value = await this._def.transform[1](ctx);
+		return schema._beforeEncode({ ...ctx, value });
 	}
 }
 
@@ -115,20 +117,21 @@ export class NilBool extends NilType<boolean> {
 		return 1;
 	}
 
-	_decode(data: DataView) {
-		const value = data.getInt8(0);
-		switch (data.getInt8(0)) {
+	_decode(ctx: DecodeContext<boolean>) {
+		const { data, offset } = ctx;
+		const value = data.getInt8(offset);
+		switch (value) {
 			case 0:
 				return false;
 			case 1:
 				return true;
 			default:
-				throw new Error(`Invalid value ${value} for a boolean`);
+				throw new NilError(`Invalid value ${value} for a boolean`, ctx);
 		}
 	}
 
-	_encode(data: DataView, value: boolean) {
-		data.setInt8(0, value ? 1 : 0);
+	_encode({ data, offset, value }: ParseContext<boolean>) {
+		data.setInt8(offset, value ? 1 : 0);
 	}
 }
 
@@ -144,59 +147,70 @@ export class NilNumber extends NilType<number, NilNumberDef> {
 		return this._def.bytes;
 	}
 
-	_decode(data: DataView) {
+	_decode(ctx: DecodeContext<number>) {
+		const { data, offset } = ctx;
 		const { bytes, signed, floating, bigEndian: be } = this._def;
 		if (floating) {
 			switch (bytes) {
 				case 4:
-					return data.getFloat32(0, !be);
+					return data.getFloat32(offset, !be);
 				case 8:
-					return data.getFloat64(0, !be);
+					return data.getFloat64(offset, !be);
 				default:
-					throw new Error(
-						`Invalid byte size ${bytes} for a floating point number`
+					throw new NilError(
+						`Invalid byte size ${bytes} for a floating point number`,
+						ctx
 					);
 			}
 		}
 		switch (bytes) {
 			case 1:
-				return signed ? data.getInt8(0) : data.getUint8(0);
+				return signed ? data.getInt8(offset) : data.getUint8(offset);
 			case 2:
-				return signed ? data.getInt16(0, !be) : data.getUint16(0, !be);
+				return signed
+					? data.getInt16(offset, !be)
+					: data.getUint16(offset, !be);
 			case 4:
-				return signed ? data.getInt32(0, !be) : data.getUint32(0, !be);
+				return signed
+					? data.getInt32(offset, !be)
+					: data.getUint32(offset, !be);
 			case 8:
-				throw new Error('For parsing 8 byte numbers us n.bigint');
+				throw new NilError('For parsing 8 byte numbers us n.bigint', ctx);
 		}
 	}
 
-	_encode(data: DataView, value: number) {
+	_encode(ctx: ParseContext<number>) {
+		const { data, offset, value } = ctx;
 		const { bytes, signed, floating, bigEndian: be } = this._def;
 		if (floating) {
 			switch (bytes) {
 				case 4:
-					return data.setFloat32(0, value, !be);
+					return data.setFloat32(offset, value, !be);
 				case 8:
-					return data.setFloat64(0, value, !be);
+					return data.setFloat64(offset, value, !be);
 				default:
-					throw new Error(
-						`Invalid byte size ${bytes} for a floating point number`
+					throw new NilError(
+						`Invalid byte size ${bytes} for a floating point number`,
+						ctx
 					);
 			}
 		}
+
 		switch (bytes) {
 			case 1:
-				return signed ? data.setInt8(0, value) : data.setUint8(0, value);
+				return signed
+					? data.setInt8(offset, value)
+					: data.setUint8(offset, value);
 			case 2:
 				return signed
-					? data.setInt16(0, value, !be)
-					: data.setUint16(0, value, !be);
+					? data.setInt16(offset, value, !be)
+					: data.setUint16(offset, value, !be);
 			case 4:
 				return signed
-					? data.setInt32(0, value, !be)
-					: data.setUint32(0, value, !be);
+					? data.setInt32(offset, value, !be)
+					: data.setUint32(offset, value, !be);
 			case 8:
-				throw new Error('For parsing 8 byte numbers us n.bigint');
+				throw new NilError('For parsing 8 byte numbers us n.bigint', ctx);
 		}
 	}
 
@@ -216,14 +230,18 @@ export class NilBigint extends NilType<bigint, NilBigintDef> {
 		return 8;
 	}
 
-	_decode(data: DataView) {
+	_decode({ data, offset }: DecodeContext<bigint>) {
 		const { signed, bigEndian: be } = this._def;
-		return signed ? data.getBigInt64(0, !be) : data.getBigUint64(0, !be);
+		return signed
+			? data.getBigInt64(offset, !be)
+			: data.getBigUint64(offset, !be);
 	}
 
-	_encode(data: DataView, value: bigint) {
+	_encode({ data, offset, value }: ParseContext<bigint>) {
 		const { signed, bigEndian: be } = this._def;
-		signed ? data.setBigInt64(0, value, !be) : data.setBigUint64(0, value, !be);
+		signed
+			? data.setBigInt64(offset, value, !be)
+			: data.setBigUint64(offset, value, !be);
 	}
 
 	be() {
@@ -239,41 +257,42 @@ type NilStringDef = {
 };
 
 export class NilString extends NilType<string, NilStringDef> {
-	size(value?: string, ctx?: ParseContext) {
+	size(ctx: BeforeEncodeContext<string>) {
 		const { length, inBytes } = this._def;
 
 		let byteLength = 0;
 		if (length === 'fill') {
-			byteLength = !value ? -1 : value?.length;
+			byteLength = !ctx.value ? -1 : ctx.value.length;
 		} else if (typeof length !== 'number') {
 			const resolved = resolvePath(length, ctx);
 			if (!resolved || typeof resolved !== 'number')
-				throw new Error(
-					`Data referenced by path "${length}" did not resolve to a number. Resolved value = ${resolved}`
+				throw new NilError(
+					`Data referenced by path "${length}" did not resolve to a number. Resolved value = ${resolved}`,
+					ctx
 				);
 			byteLength = resolved;
 		} else {
 			byteLength = length / (inBytes ? 8 : 1);
 		}
 
-		if (value !== undefined && value.length !== byteLength)
-			throw new Error(
-				`Given string "${value}" has different size (${value.length}) then allocated space (${byteLength})`
+		if (ctx.value !== undefined && ctx.value.length !== byteLength)
+			throw new NilError(
+				`Given string "${ctx.value}" has different size (${ctx.value.length}) then allocated space (${byteLength})`,
+				ctx
 			);
 		return byteLength;
 	}
 
-	_decode(data: DataView) {
+	_decode({ data, offset, size }: DecodeContext<string>) {
 		const decoder = new TextDecoder(this._def.encoding ?? 'utf-8');
-		return decoder.decode(
-			new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
-		);
+		return decoder.decode(new DataView(data.buffer, offset, size));
 	}
 
-	_encode(data: DataView, value: string) {
+	_encode({ data, offset, value }: ParseContext<string>) {
 		const encoder = new TextEncoder();
+		// TODO: Optimize
 		const buffer = encoder.encode(value);
-		buffer.forEach((v, i) => data.setInt8(i, v));
+		buffer.forEach((v, i) => data.setInt8(offset + i, v));
 	}
 
 	bytes() {
@@ -299,7 +318,7 @@ class NilArray<T extends NilTypeAny> extends NilType<
 	NilArrayDef<T>,
 	T['_input'][]
 > {
-	size(value?: T['_input'][], ctx?: ParseContext) {
+	size(ctx: Partial<ParseContext>) {
 		const { length, inBytes } = this._def;
 
 		const elementSize = this.#elementSize(value, ctx);
@@ -324,54 +343,44 @@ class NilArray<T extends NilTypeAny> extends NilType<
 		return byteLength;
 	}
 
-	_decode(data: DataView, ctx?: ParseContext) {
+	_decode({ data, offset }: ParseContext) {
 		const { schema } = this._def;
 		const value: T['_input'][] = [];
 
 		const elementSize = this.#elementSize(undefined, ctx);
 		const size = this.size(undefined, ctx);
-		const step = size === -1 ? data.byteLength : size;
+		const step = size === -1 ? data.byteLength - offset : size;
 
-		let offset = 0;
-		while (offset < step) {
-			const newCtx: ParseContext = {
-				// FIXME: Types
-				value: value as never,
-				path: [...(ctx?.path ?? []), value.length],
-				parent: ctx
-			};
-			const view = new DataView(
-				data.buffer,
-				data.byteOffset + offset,
-				elementSize
+		let currentOffset = offset;
+		while (currentOffset < step) {
+			value.push(
+				schema._decode(data, currentOffset, {
+					// FIXME: Types
+					value: value as never,
+					path: [...(ctx?.path ?? []), value.length],
+					parent: ctx
+				})
 			);
-			value.push(schema._decode(view, newCtx));
-			offset += elementSize;
+			currentOffset += elementSize;
 		}
 
 		return value;
 	}
 
-	_encode(data: DataView, value: T['_input'][], ctx?: ParseContext) {
+	_encode(value: T['_input'][], { data, offset }: ParseContext) {
 		const { schema } = this._def;
 
 		const elementSize = this.#elementSize(undefined, ctx);
 
-		let offset = 0;
+		let currentOffset = offset;
 		value.forEach((v, i) => {
-			const newCtx: ParseContext = {
+			schema._encode(data, currentOffset, v, {
 				// FIXME: Types
 				value: value as never,
 				path: [...(ctx?.path ?? []), i],
 				parent: ctx
-			};
-			const view = new DataView(
-				data.buffer,
-				data.byteOffset + offset,
-				elementSize
-			);
-			schema._encode(view, v, newCtx);
-			offset += elementSize;
+			});
+			currentOffset += elementSize;
 		});
 	}
 
@@ -392,7 +401,7 @@ class NilArray<T extends NilTypeAny> extends NilType<
 		return arr;
 	}
 
-	async _beforeEncode(value: T['_output'][], ctx?: ParseContext) {
+	async _beforeEncode(value: T['_output'][], ctx: ParseContext) {
 		const { schema } = this._def;
 		const arr = [];
 		for (let i = 0; i < value.length; i++) {
@@ -408,7 +417,7 @@ class NilArray<T extends NilTypeAny> extends NilType<
 		return arr;
 	}
 
-	#elementSize(value?: T['_input'][], ctx?: ParseContext) {
+	#elementSize(value?: T['_input'][], ctx: ParseContext) {
 		const { schema } = this._def;
 		const newCtx: ParseContext = {
 			// FIXME: Types
@@ -441,7 +450,7 @@ class NilObject<
 	Output = objectOutputType<T>,
 	Input = Output
 > extends NilType<Output, NilObjectDef<T>, Input> {
-	size(value?: Input, ctx?: ParseContext) {
+	size(ctx: Partial<ParseContext>) {
 		const { shape } = this._def;
 		return Object.entries(shape).reduce((acc, [k, v]) => {
 			if (acc === -1) return -1;
@@ -456,31 +465,30 @@ class NilObject<
 		}, 0);
 	}
 
-	_decode(data: DataView, ctx?: ParseContext) {
+	_decode({ data, offset }: ParseContext) {
 		const { shape } = this._def;
 		const value: Partial<Input> = {};
 
-		let offset = 0;
+		let currentOffset = offset;
 		Object.entries(shape).forEach(([k, v]) => {
 			const newCtx: ParseContext = {
 				value,
 				path: [...(ctx?.path ?? []), k],
 				parent: ctx
 			};
-			const size = v.size(value[k as keyof Input], newCtx);
-			const step = size === -1 ? data.byteLength - offset : size;
-			const view = new DataView(data.buffer, data.byteOffset + offset, step);
-			value[k as keyof Input] = v._decode(view, newCtx);
-			offset += step;
+			const size = v.size(undefined, newCtx);
+			const step = size === -1 ? data.byteLength - currentOffset : size;
+			value[k as keyof Input] = v._decode(data, currentOffset, newCtx);
+			currentOffset += step;
 		});
 
 		return value as Input;
 	}
 
-	_encode(data: DataView, value: Input, ctx?: ParseContext) {
+	_encode(value: Input, { data, offset }: ParseContext) {
 		const { shape } = this._def;
 
-		let offset = 0;
+		let currentOffset = offset;
 		Object.entries(shape).forEach(([k, v]) => {
 			const newCtx: ParseContext = {
 				// FIXME: Types
@@ -489,13 +497,12 @@ class NilObject<
 				parent: ctx
 			};
 			const size = v.size(value[k as keyof Input], newCtx);
-			const view = new DataView(data.buffer, data.byteOffset + offset, size);
-			v._encode(view, value[k as keyof Input], newCtx);
-			offset += size;
+			v._encode(data, currentOffset, value[k as keyof Input], newCtx);
+			currentOffset += size;
 		});
 	}
 
-	async _afterDecode(value: Input, ctx?: ParseContext) {
+	async _afterDecode(value: Input, ctx: ParseContext) {
 		const { shape } = this._def;
 		return parallelMap(shape, async (v, k) =>
 			v._afterDecode(value[k as keyof Input], {
@@ -526,7 +533,7 @@ type NilBufferDef = {
 };
 
 class NilBuffer extends NilType<Uint8Array, NilBufferDef> {
-	size(value?: Uint8Array, ctx?: ParseContext) {
+	size(ctx: Partial<ParseContext>) {
 		const { length, inBytes } = this._def;
 
 		let byteLength = 0;
@@ -546,13 +553,17 @@ class NilBuffer extends NilType<Uint8Array, NilBufferDef> {
 		return byteLength;
 	}
 
-	_decode(data: DataView) {
-		return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+	_decode({ data, offset }: ParseContext) {
+		return new Uint8Array(
+			data.buffer,
+			data.byteOffset + offset,
+			data.byteLength - offset
+		);
 	}
 
-	_encode(data: DataView, value: Uint8Array) {
+	_encode(value: Uint8Array, { data, offset }: ParseContext) {
 		for (let i = 0; i < value.length; i++) {
-			data.setUint8(i, value[i]);
+			data.setUint8(offset + i, value[i]);
 		}
 	}
 
@@ -581,12 +592,12 @@ export class NilEnum<
 		return this._def.type.size();
 	}
 
-	_decode(data: DataView) {
-		return this._def.type._decode(data);
+	_decode(ctx: ParseContext) {
+		return this._def.type._decode(ctx);
 	}
 
-	_encode(data: DataView, value: number) {
-		this._def.type._encode(data, value);
+	_encode(value: number, ctx: ParseContext) {
+		this._def.type._encode(value, ctx);
 	}
 
 	async _afterDecode(value: T['_input']) {

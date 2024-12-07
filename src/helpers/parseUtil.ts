@@ -1,19 +1,24 @@
 export type ParsePathComponent = string | number;
 export type ParsePath = ParsePathComponent[];
 
-export type ParseContext = {
+export type ParseContext<T = unknown> = {
 	readonly path: ParsePath;
 	readonly parent?: ParseContext;
-	readonly value: Record<string, unknown>;
+
+	readonly data: DataView;
+	readonly offset: number;
+
+	readonly value: T;
+	readonly size: number;
 };
 
-export type ParseInput = {
-	data: Buffer;
-	path: ParsePath;
-	parent: ParseContext;
-};
+export type DecodeContext<T = unknown> = Omit<ParseContext<T>, 'value'>;
+export type BeforeEncodeContext<T = unknown> = Pick<
+	ParseContext<T>,
+	'parent' | 'path' | 'value'
+>;
 
-export const resolvePath = (path: ParsePath, ctx?: ParseContext) => {
+export const resolvePath = (path: ParsePath, ctx?: BeforeEncodeContext) => {
 	let relativeCtx = ctx;
 	let relativePath = path;
 	while (relativePath[0] === '..') {
@@ -34,3 +39,11 @@ export const resolvePath = (path: ParsePath, ctx?: ParseContext) => {
 	}
 	return data;
 };
+
+export class NilError extends Error {
+	readonly ctx: Partial<ParseContext>;
+	constructor(message: string, ctx: Partial<ParseContext>) {
+		super(message);
+		this.ctx = ctx;
+	}
+}
