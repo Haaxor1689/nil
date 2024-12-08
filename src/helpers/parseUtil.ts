@@ -5,6 +5,7 @@ export type ParseContext<T = unknown> = {
 	readonly path: ParsePath;
 	readonly parent?: ParseContext;
 
+	readonly buffer: Uint8Array;
 	readonly data: DataView;
 	readonly offset: number;
 
@@ -13,12 +14,17 @@ export type ParseContext<T = unknown> = {
 };
 
 export type DecodeContext<T = unknown> = Omit<ParseContext<T>, 'value'>;
-export type BeforeEncodeContext<T = unknown> = Pick<
+export type EncodeContext<T = unknown> = Pick<
 	ParseContext<T>,
 	'parent' | 'path' | 'value'
 >;
+export type SizeContext<T = unknown> = Pick<
+	ParseContext<T>,
+	'parent' | 'path'
+> &
+	Partial<ParseContext<T>>;
 
-export const resolvePath = (path: ParsePath, ctx?: BeforeEncodeContext) => {
+export const resolvePath = (path: ParsePath, ctx?: SizeContext) => {
 	let relativeCtx = ctx;
 	let relativePath = path;
 	while (relativePath[0] === '..') {
@@ -43,7 +49,7 @@ export const resolvePath = (path: ParsePath, ctx?: BeforeEncodeContext) => {
 export class NilError extends Error {
 	readonly ctx: Partial<ParseContext>;
 	constructor(message: string, ctx: Partial<ParseContext>) {
-		super(message);
+		super(`NilError: ${message}`);
 		this.ctx = ctx;
 	}
 }

@@ -88,7 +88,7 @@ import { n } from '@haaxor1689/nil';
 // Declare object schema with given shape
 const User = n.object({
 	rank: n.uint16(),
-	active: n.int32()
+	active: n.bool()
 });
 
 // Extract the output type
@@ -147,6 +147,19 @@ n.array(n.int16(), 'fill');
 
 > Note that any dynamically sized array-like type will **fill** the whole remaining space in the buffer so they **should always be at the end**.
 
+### Null terminated strings
+
+For strings specifically, you can choose the `'null-terminated'` length option to make them behave like c-strings.
+
+```ts
+const buffer = new Uint8Array([104, 101, 108, 108, 111, 0, 119, 111, 114, 108, 100, 0]);
+
+n.string('fill').fromBuffer(buffer); // -> "hello\0world\0"
+n.string('null-terminated').fromBuffer(buffer); // -> "hello"
+
+n.string('null-terminated').toBuffer('hello\0world\0'); // Strips everything after first \0
+```
+
 ### Length in bytes
 
 The `.bytes()` option can be used to interpret a given length in bytes instead of the count of elements.
@@ -160,6 +173,8 @@ n.string(256).bytes();
 n.array(n.int8, 256).bytes();
 ```
 
+> Trying to use `.bytes()` with `fill` or `null-terminated` length is not supported and will throw and error.
+
 ## Enums
 
 You can load **C** enum values as a string literal union. Only default numbered **C** enums are supported now.
@@ -168,7 +183,7 @@ You can load **C** enum values as a string literal union. Only default numbered 
 import { n } from '@haaxor1689/nil';
 
 // Declare enum schema with given options
-const Level = n.enum(n.int8(), ['LOW', 'MEDIUM', 'HIGH']);
+const Level = n.enum(n.uint8(), ['LOW', 'MEDIUM', 'HIGH']);
 
 // Extract the output type
 type Level = n.output<typeof Level>;
@@ -195,7 +210,7 @@ You can access the tuple used to create a given enum with `.options`.
 import { n } from '@haaxor1689/nil';
 
 // Declare enum schema with given options
-const Level = n.enum(n.int8(), ['LOW', 'MEDIUM', 'HIGH']);
+const Level = n.enum(n.uint8(), ['LOW', 'MEDIUM', 'HIGH']);
 
 Level.options; // ["LOW", "MEDIUM", "HIGH"]
 ```
@@ -231,8 +246,8 @@ All Nil schemas contain these methods.
 
 ```ts
 .transform(
-  afterDecode: (v: Input, ctx?: ParseContext) => Promise<Output>,
-  beforeEncode: (v: Output, ctx?: ParseContext) => Promise<Input>
+  afterDecode: (ctx: ParseContext<Input>) => Promise<Output> | Output,
+  beforeEncode: (ctx: EncodeContext<Output>) => Promise<Input> | Input
 )
 ```
 
@@ -248,8 +263,8 @@ const MySchema = n
 		items: n.array(n.int8(), ['itemCount'])
 	})
 	.transform(
-		v => v.items, // keep only raw items
-		v => ({ itemCount: v.length, items: v }) // calculate itemCount
+		ctx => ctx.value.items, // keep only raw items
+		ctx => ({ itemCount: ctx.value.length, items: ctx.value }) // calculate itemCount
 	);
 
 // Inferred output type is `number[]`
@@ -267,13 +282,13 @@ import { n } from '@haaxor1689/nil';
 const MySchema = n.object({
 	hasAlpha: n.bool(),
 	data: n.array(n.int8(), 'fill').transform(
-		(v, ctx) => {
+		ctx => {
 			n.resolvePath(['hasAlpha'], ctx); // will hold value of `hasAlpha` attribute from parent object
-			return v;
+			return ctx.value;
 		},
-		(v, ctx) => {
+		ctx => {
 			n.resolvePath(['hasAlpha'], ctx); // will hold value of `hasAlpha` attribute from parent object
-			return v;
+			return ctx.value;
 		}
 	)
 });
@@ -299,7 +314,5 @@ Tries to serialize a given object into a buffer.
 
 - Literal types
 - Unions
-- Better error handling
-- Dynamic length null-terminated strings
 - Don't allow smaller arrays than their defined constant size
 - Tests
