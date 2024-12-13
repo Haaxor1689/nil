@@ -3,7 +3,7 @@ export type ParsePath = ParsePathComponent[];
 
 export type ParseContext<T = unknown> = {
 	readonly path: ParsePath;
-	readonly parent?: ParseContext;
+	readonly parent?: Pick<ParseContext<T>, 'path'> & Partial<ParseContext<T>>;
 
 	readonly buffer: Uint8Array;
 	readonly data: DataView;
@@ -14,17 +14,20 @@ export type ParseContext<T = unknown> = {
 };
 
 export type DecodeContext<T = unknown> = Omit<ParseContext<T>, 'value'>;
-export type EncodeContext<T = unknown> = Pick<
+export type TransformContext<T = unknown> = Pick<
 	ParseContext<T>,
 	'parent' | 'path' | 'value'
 >;
 export type SizeContext<T = unknown> = Pick<
 	ParseContext<T>,
-	'parent' | 'path'
+	'path' | 'offset'
 > &
 	Partial<ParseContext<T>>;
 
-export const resolvePath = (path: ParsePath, ctx?: SizeContext) => {
+export const resolvePath = (
+	path: ParsePath,
+	ctx?: Pick<ParseContext, 'path'> & Partial<ParseContext>
+) => {
 	let relativeCtx = ctx;
 	let relativePath = path;
 	while (relativePath[0] === '..') {

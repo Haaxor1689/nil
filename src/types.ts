@@ -2,10 +2,10 @@ import {
 	resolvePath,
 	type ParseContext,
 	type ParsePath,
-	EncodeContext,
-	DecodeContext,
+	type TransformContext,
+	type DecodeContext,
 	NilError,
-	SizeContext
+	type SizeContext
 } from './helpers/parseUtil';
 import {
 	// parallelMap,
@@ -28,8 +28,8 @@ export type objectOutputType<Shape extends NilRawShape> = flatten<
 >;
 
 type TransformType<Output = any, Input = Output> = [
-	afterDecode: (ctx: ParseContext<Input>) => Promise<Output> | Output,
-	beforeEncode: (ctx: EncodeContext<Output>) => Promise<Input> | Input
+	afterDecode: (ctx: TransformContext<Input>) => Promise<Output> | Output,
+	beforeEncode: (ctx: TransformContext<Output>) => Promise<Input> | Input
 ];
 
 export abstract class NilType<Output = any, Def = object, Input = Output> {
@@ -42,11 +42,11 @@ export abstract class NilType<Output = any, Def = object, Input = Output> {
 	abstract _decode(ctx: DecodeContext<Input>): Input;
 	abstract _encode(ctx: ParseContext<Input>): void;
 
-	async _afterDecode(ctx: ParseContext<Input>): Promise<Output> {
+	async _afterDecode(ctx: TransformContext<Input>): Promise<Output> {
 		return ctx.value as never;
 	}
 
-	async _beforeEncode(ctx: EncodeContext<Output>): Promise<Input> {
+	async _beforeEncode(ctx: TransformContext<Output>): Promise<Input> {
 		return ctx.value as never;
 	}
 
@@ -55,7 +55,7 @@ export abstract class NilType<Output = any, Def = object, Input = Output> {
 		const ctx = { path: [], data, buffer, offset: 0 };
 		const size = this.size(ctx);
 		const value = this._decode({ ...ctx, size });
-		return this._afterDecode({ ...ctx, size, value });
+		return this._afterDecode({ ...ctx, value });
 	}
 
 	async toBuffer(v: Output): Promise<Uint8Array> {
@@ -93,7 +93,7 @@ class NilEffects<
 		return this._def.schema.size(ctx);
 	}
 
-	_decode(ctx: ParseContext) {
+	_decode(ctx: ParseContext<Input>) {
 		return this._def.schema._decode(ctx);
 	}
 
@@ -101,7 +101,7 @@ class NilEffects<
 		this._def.schema._encode(ctx);
 	}
 
-	async _afterDecode(ctx: ParseContext<Input>): Promise<Output> {
+	async _afterDecode(ctx: TransformContext<Input>): Promise<Output> {
 		const { schema } = this._def;
 		try {
 			const value = await schema._afterDecode(ctx);
@@ -117,7 +117,7 @@ class NilEffects<
 		}
 	}
 
-	async _beforeEncode(ctx: EncodeContext<Output>): Promise<Input> {
+	async _beforeEncode(ctx: TransformContext<Output>): Promise<Input> {
 		const { schema } = this._def;
 		try {
 			const value = await this._def.transform[1](ctx);
@@ -141,6 +141,14 @@ export class NilBool extends NilType<boolean> {
 
 	_decode(ctx: DecodeContext<boolean>) {
 		const { data, offset } = ctx;
+
+		const missingBytes = offset + 1 - data.byteLength;
+		if (missingBytes > 0)
+			throw new NilError(
+				`Not enough space to decode boolean, missing ${missingBytes} byte(s)`,
+				ctx
+			);
+
 		const value = data.getInt8(offset);
 		switch (value) {
 			case 0:
@@ -172,6 +180,14 @@ export class NilNumber extends NilType<number, NilNumberDef> {
 	_decode(ctx: DecodeContext<number>) {
 		const { data, offset } = ctx;
 		const { bytes, signed, floating, bigEndian: be } = this._def;
+
+		const missingBytes = offset + bytes - data.byteLength;
+		if (missingBytes > 0)
+			throw new NilError(
+				`Not enough space to decode ${bytes}-byte number, missing ${missingBytes} byte(s)`,
+				ctx
+			);
+
 		if (floating) {
 			switch (bytes) {
 				case 4:
@@ -244,6 +260,12 @@ export class NilNumber extends NilType<number, NilNumberDef> {
 			}
 		}
 
+		if (value % 1 !== 0)
+			throw new NilError(
+				`Can't encode non-integer value ${value} as a number`,
+				ctx
+			);
+
 		const intRanges = {
 			1: signed ? [-128, 127] : [0, 255],
 			2: signed ? [-32768, 32767] : [0, 65535],
@@ -299,8 +321,17 @@ export class NilBigint extends NilType<bigint, NilBigintDef> {
 		return 8;
 	}
 
-	_decode({ data, offset }: DecodeContext<bigint>) {
+	_decode(ctx: DecodeContext<bigint>) {
+		const { data, offset } = ctx;
 		const { signed, bigEndian: be } = this._def;
+
+		const missingBytes = offset + 8 - data.byteLength;
+		if (missingBytes > 0)
+			throw new NilError(
+				`Not enough space to decode 8-byte number, missing ${missingBytes} byte(s)`,
+				ctx
+			);
+
 		return signed
 			? data.getBigInt64(offset, !be)
 			: data.getBigUint64(offset, !be);
@@ -337,6 +368,65 @@ export class NilBigint extends NilType<bigint, NilBigintDef> {
 	}
 }
 
+type NilBufferDef = {
+	length: number | ParsePath | 'fill';
+	inBytes?: boolean;
+};
+
+class NilBuffer extends NilType<Uint8Array, NilBufferDef> {
+	size(ctx: SizeContext<Uint8Array>) {
+		const { length, inBytes } = this._def;
+		const { buffer, offset, value } = ctx;
+
+		if (typeof length === 'number') return length / (inBytes ? 8 : 1);
+		if (length === 'fill') {
+			if (value !== undefined) return value.length;
+			if (!buffer || offset === undefined) return -1;
+			return buffer.subarray(offset).length;
+		}
+		// TODO: Test after objects/arrays are done
+		const resolved = resolvePath(length, ctx);
+		if (typeof resolved !== 'number')
+			throw new NilError(
+				`Invalid length "${resolved}" resolved from ${length.join('/')}`,
+				ctx
+			);
+		return resolved;
+	}
+
+	_decode(ctx: DecodeContext<Uint8Array>) {
+		const { buffer, offset, size } = ctx;
+
+		const missingBytes = offset + size - buffer.byteLength;
+		if (missingBytes > 0)
+			throw new NilError(
+				`Not enough space to decode ${size}-byte buffer, missing ${missingBytes} byte(s)`,
+				ctx
+			);
+
+		return buffer.subarray(offset, offset + size);
+	}
+
+	_encode(ctx: ParseContext<Uint8Array>) {
+		const { buffer, offset, size, value } = ctx;
+		if (value.length !== size)
+			throw new NilError(
+				`Buffer length ${value.length} does not match expected length ${size}`,
+				ctx
+			);
+		buffer.subarray(offset, offset + size).set(value);
+	}
+
+	bytes() {
+		if (typeof this._def.length === 'string')
+			throw new Error(`Can't set bytes on dynamic length buffer.`);
+		if (typeof this._def.length === 'number' && this._def.length % 8)
+			throw new Error(`Byte size ${this._def.length} is not divisible by 8.`);
+		this._def.inBytes = true;
+		return this;
+	}
+}
+
 type NilStringDef = {
 	length: number | ParsePath | 'fill' | 'null-terminated';
 	inBytes?: boolean;
@@ -362,15 +452,24 @@ export class NilString extends NilType<string, NilStringDef> {
 		}
 		// TODO: Test after objects/arrays are done
 		const resolved = resolvePath(length, ctx);
-		if (!resolved || typeof resolved !== 'number')
+		if (typeof resolved !== 'number')
 			throw new NilError(
-				`Data referenced by path "${length}" did not resolve to a number. Resolved value = ${resolved}`,
+				`Invalid length "${resolved}" resolved from ${length.join('/')}`,
 				ctx
 			);
-		return resolved;
+		return resolved / (inBytes ? 8 : 1);
 	}
 
-	_decode({ buffer, offset, size }: DecodeContext<string>) {
+	_decode(ctx: DecodeContext<string>) {
+		const { buffer, offset, size } = ctx;
+
+		const missingBytes = offset + size - buffer.byteLength;
+		if (missingBytes > 0)
+			throw new NilError(
+				`Not enough space to decode ${size}-byte string, missing ${missingBytes} byte(s)`,
+				ctx
+			);
+
 		const val = new TextDecoder('utf-8').decode(
 			buffer.subarray(offset, offset + size)
 		);
@@ -381,7 +480,7 @@ export class NilString extends NilType<string, NilStringDef> {
 		const { buffer, offset, size, value } = ctx;
 		const val =
 			this._def.length === 'null-terminated'
-				? value.split('\0')[0] + '\0'
+				? `${value.split('\0')[0]}\0`
 				: value;
 		const r = new TextEncoder().encodeInto(
 			val,
@@ -404,139 +503,161 @@ export class NilString extends NilType<string, NilStringDef> {
 	}
 }
 
-// type NilArrayDef<T extends NilTypeAny = NilTypeAny> = {
-// 	schema: T;
-// 	length: number | ParsePath | 'fill';
-// 	inBytes?: boolean;
-// };
+type NilArrayDef<T extends NilTypeAny = NilTypeAny> = {
+	schema: T;
+	length: number | ParsePath | 'fill';
+	inBytes?: boolean;
+};
 
-// class NilArray<T extends NilTypeAny> extends NilType<
-// 	T['_output'][],
-// 	NilArrayDef<T>,
-// 	T['_input'][]
-// > {
-// 	size(ctx: Partial<ParseContext>) {
-// 		const { length, inBytes } = this._def;
+class NilArray<T extends NilTypeAny> extends NilType<
+	T['_output'][],
+	NilArrayDef<T>,
+	T['_input'][]
+> {
+	size(ctx: SizeContext<T['_input'][]>) {
+		const { schema, length, inBytes } = this._def;
+		const { buffer, offset, value, size } = ctx;
 
-// 		const elementSize = this.#elementSize(value, ctx);
-// 		if (elementSize === -1) return -1;
+		if (size !== undefined) return size;
 
-// 		let byteLength = 0;
-// 		if (length === 'fill') {
-// 			byteLength = !value ? -1 : value?.length * elementSize;
-// 		} else if (typeof length !== 'number') {
-// 			const resolved = resolvePath(length, ctx);
-// 			if (!resolved || typeof resolved !== 'number')
-// 				throw new Error(
-// 					`Data referenced by path "${length}" did not resolve to a number. Resolved value = ${resolved}`
-// 				);
+		const forLoopSum = (l: number) => {
+			let size = 0;
+			for (let i = 0; i < l; i++) {
+				const elementSize = schema.size(this.#elemCtx(i, size, ctx));
+				if (elementSize === -1) return -1;
+				size += elementSize;
+			}
+			return size;
+		};
 
-// 			byteLength = resolved * elementSize;
-// 		} else if (inBytes) {
-// 			byteLength = length / 8;
-// 		} else {
-// 			byteLength = length * elementSize;
-// 		}
-// 		return byteLength;
-// 	}
+		const whileLoopSum = (l: number) => {
+			let size = 0;
+			let i = 0;
+			while (offset + size < l) {
+				const elementSize = schema.size(this.#elemCtx(i, size, ctx));
+				if (elementSize === -1) return -1;
+				size += elementSize;
+				i++;
+			}
+			return size;
+		};
 
-// 	_decode({ data, offset }: ParseContext) {
-// 		const { schema } = this._def;
-// 		const value: T['_input'][] = [];
+		if (typeof length === 'number')
+			return inBytes ? whileLoopSum(length) : forLoopSum(length);
 
-// 		const elementSize = this.#elementSize(undefined, ctx);
-// 		const size = this.size(undefined, ctx);
-// 		const step = size === -1 ? data.byteLength - offset : size;
+		if (length === 'fill') {
+			if (value !== undefined) return forLoopSum(value.length);
+			if (!buffer || offset === undefined) return -1;
+			return whileLoopSum(buffer.length);
+		}
 
-// 		let currentOffset = offset;
-// 		while (currentOffset < step) {
-// 			value.push(
-// 				schema._decode(data, currentOffset, {
-// 					// FIXME: Types
-// 					value: value as never,
-// 					path: [...(ctx?.path ?? []), value.length],
-// 					parent: ctx
-// 				})
-// 			);
-// 			currentOffset += elementSize;
-// 		}
+		// TODO: Test after objects/arrays are done
+		const resolved = resolvePath(length, ctx);
+		if (typeof resolved !== 'number')
+			throw new NilError(
+				`Invalid length "${resolved}" resolved from ${length.join('/')}`,
+				ctx
+			);
 
-// 		return value;
-// 	}
+		return inBytes ? whileLoopSum(resolved) : forLoopSum(resolved);
+	}
 
-// 	_encode(value: T['_input'][], { data, offset }: ParseContext) {
-// 		const { schema } = this._def;
+	_decode(ctx: DecodeContext<T['_input'][]>) {
+		const { schema } = this._def;
+		const { offset, data, buffer } = ctx;
 
-// 		const elementSize = this.#elementSize(undefined, ctx);
+		const value: T['_input'][] = [];
 
-// 		let currentOffset = offset;
-// 		value.forEach((v, i) => {
-// 			schema._encode(data, currentOffset, v, {
-// 				// FIXME: Types
-// 				value: value as never,
-// 				path: [...(ctx?.path ?? []), i],
-// 				parent: ctx
-// 			});
-// 			currentOffset += elementSize;
-// 		});
-// 	}
+		const size = this.size(ctx);
+		const totalSize = size === -1 ? data.byteLength - offset : size;
 
-// 	async _afterDecode(value: T['_input'][], ctx?: ParseContext) {
-// 		const { schema } = this._def;
+		let idx = 0;
+		let currentOffset = 0;
+		while (currentOffset < totalSize) {
+			const elemCtx = this.#elemCtx(idx, currentOffset, ctx);
+			const size = schema.size(elemCtx);
+			value.push(schema._decode({ ...elemCtx, data, buffer, size }));
+			currentOffset += size;
+			idx++;
+		}
 
-// 		const arr = [];
-// 		for (let i = 0; i < value.length; i++) {
-// 			const v = value[i];
-// 			const newCtx: ParseContext = {
-// 				// FIXME: Types
-// 				value: value as never,
-// 				path: [...(ctx?.path ?? []), i],
-// 				parent: ctx
-// 			};
-// 			arr.push(await schema._afterDecode(v, newCtx));
-// 		}
-// 		return arr;
-// 	}
+		return value;
+	}
 
-// 	async _beforeEncode(value: T['_output'][], ctx: ParseContext) {
-// 		const { schema } = this._def;
-// 		const arr = [];
-// 		for (let i = 0; i < value.length; i++) {
-// 			const v = value[i];
-// 			const newCtx: ParseContext = {
-// 				// FIXME: Types
-// 				value: value as never,
-// 				path: [...(ctx?.path ?? []), i],
-// 				parent: ctx
-// 			};
-// 			arr.push(await schema._beforeEncode(v, newCtx));
-// 		}
-// 		return arr;
-// 	}
+	_encode(ctx: ParseContext<T['_input'][]>) {
+		const { schema } = this._def;
+		const { offset, data, buffer } = ctx;
 
-// 	#elementSize(value?: T['_input'][], ctx: ParseContext) {
-// 		const { schema } = this._def;
-// 		const newCtx: ParseContext = {
-// 			// FIXME: Types
-// 			value: value as never,
-// 			path: [...(ctx?.path ?? []), 0],
-// 			parent: ctx
-// 		};
-// 		// FIXME: Types
-// 		return schema.size((value as any)?.[0], newCtx);
-// 	}
+		const size = this.size(ctx);
+		const endOffset = size === -1 ? data.byteLength - offset : size;
 
-// 	bytes() {
-// 		if (typeof this._def.length !== 'number')
-// 			throw new Error(
-// 				`Can't set string length to bytes when it's defined by a path.`
-// 			);
-// 		if (this._def.length % 8)
-// 			throw new Error(`Byte size ${this._def.length} is not divisible by 8.`);
-// 		this._def.inBytes = true;
-// 		return this;
-// 	}
-// }
+		let i = 0;
+		let currOffset = 0;
+		while (currOffset < endOffset) {
+			if (i >= ctx.value.length)
+				throw new NilError(
+					`NilError: Array length ${ctx.value.length} is smaller than expected length`,
+					ctx
+				);
+			const elemCtx = this.#elemCtx(i, currOffset, ctx);
+			const elemSize = schema.size(elemCtx);
+			schema._encode({ ...elemCtx, data, buffer, size: elemSize });
+			currOffset += elemSize;
+			i++;
+		}
+		if (i < ctx.value.length)
+			throw new NilError(
+				`NilError: Array length ${ctx.value.length} is larger than expected length`,
+				ctx
+			);
+	}
+
+	async _afterDecode(ctx: TransformContext<T['_input'][]>) {
+		const { schema } = this._def;
+		return Promise.all(
+			[...Array(ctx.value.length).keys()].map(i =>
+				schema._afterDecode({
+					value: ctx.value?.[i],
+					path: [...ctx.path, i],
+					parent: ctx
+				})
+			)
+		);
+	}
+
+	async _beforeEncode(ctx: TransformContext<T['_output'][]>) {
+		const { schema } = this._def;
+		return Promise.all(
+			[...Array(ctx.value.length).keys()].map(i =>
+				schema._beforeEncode({
+					value: ctx.value?.[i],
+					path: [...ctx.path, i],
+					parent: ctx
+				})
+			)
+		);
+	}
+
+	#elemCtx(i: number, currOffset: number, ctx: SizeContext<T['_input'][]>) {
+		return {
+			buffer: ctx.buffer,
+			data: ctx.data,
+			offset: ctx.offset + currOffset,
+			value: ctx.value?.[i],
+			path: [...ctx.path, i],
+			parent: ctx
+		};
+	}
+
+	bytes() {
+		if (typeof this._def.length === 'string')
+			throw new Error(`Can't set bytes on dynamic length array.`);
+		if (typeof this._def.length === 'number' && this._def.length % 8)
+			throw new Error(`Byte size ${this._def.length} is not divisible by 8.`);
+		this._def.inBytes = true;
+		return this;
+	}
+}
 
 // type NilObjectDef<T extends NilRawShape = NilRawShape> = {
 // 	shape: T;
@@ -624,56 +745,6 @@ export class NilString extends NilType<string, NilStringDef> {
 // 	}
 // }
 
-type NilBufferDef = {
-	length: number | ParsePath | 'fill';
-	inBytes?: boolean;
-};
-
-class NilBuffer extends NilType<Uint8Array, NilBufferDef> {
-	size(ctx: SizeContext<Uint8Array>) {
-		const { length, inBytes } = this._def;
-		const { buffer, offset, value } = ctx;
-
-		if (typeof length === 'number') return length / (inBytes ? 8 : 1);
-		if (length === 'fill') {
-			if (value !== undefined) return value.length;
-			if (!buffer || offset === undefined) return -1;
-			return buffer.subarray(offset).length;
-		}
-		// TODO: Test after objects/arrays are done
-		const resolved = resolvePath(length, ctx);
-		if (!resolved || typeof resolved !== 'number')
-			throw new NilError(
-				`Data referenced by path "${length}" did not resolve to a number. Resolved value = ${resolved}`,
-				ctx
-			);
-		return resolved;
-	}
-
-	_decode({ buffer, offset, size }: DecodeContext<Uint8Array>) {
-		return buffer.subarray(offset, offset + size);
-	}
-
-	_encode(ctx: ParseContext<Uint8Array>) {
-		const { buffer, offset, size, value } = ctx;
-		if (value.length !== size)
-			throw new NilError(
-				`Buffer length ${value.length} does not match expected length ${size}`,
-				ctx
-			);
-		buffer.subarray(offset, offset + size).set(value);
-	}
-
-	bytes() {
-		if (typeof this._def.length === 'string')
-			throw new Error(`Can't set bytes on dynamic length buffer.`);
-		if (typeof this._def.length === 'number' && this._def.length % 8)
-			throw new Error(`Byte size ${this._def.length} is not divisible by 8.`);
-		this._def.inBytes = true;
-		return this;
-	}
-}
-
 type NilEnumDef<T extends NilNumber, O extends readonly string[] | string[]> = {
 	type: T;
 	options: O;
@@ -695,7 +766,7 @@ export class NilEnum<
 		this._def.type._encode(ctx);
 	}
 
-	async _afterDecode(ctx: ParseContext<T['_input']>) {
+	async _afterDecode(ctx: TransformContext<T['_input']>) {
 		const { value } = ctx;
 		const option = this._def.options[value];
 		if (option === undefined)
@@ -706,7 +777,7 @@ export class NilEnum<
 		return option;
 	}
 
-	async _beforeEncode(ctx: EncodeContext<O[number]>) {
+	async _beforeEncode(ctx: TransformContext<O[number]>) {
 		const { value } = ctx;
 		const index = this._def.options.indexOf(value);
 		if (index === -1)
@@ -747,13 +818,13 @@ const int64 = () => new NilBigint({ signed: true });
 const uint64 = () => new NilBigint({});
 const float = () => new NilNumber({ bytes: 4, floating: true });
 const double = () => new NilNumber({ bytes: 8, floating: true });
-const string = (length: NilStringDef['length']) => new NilString({ length });
-// const array = <T extends NilTypeAny>(
-// 	schema: T,
-// 	length: NilArrayDef<T>['length']
-// ) => new NilArray({ schema, length });
-// const object = <T extends NilRawShape>(shape: T) => new NilObject({ shape });
 const buffer = (length: NilBufferDef['length']) => new NilBuffer({ length });
+const string = (length: NilStringDef['length']) => new NilString({ length });
+const array = <T extends NilTypeAny>(
+	schema: T,
+	length: NilArrayDef<T>['length']
+) => new NilArray({ schema, length });
+// const object = <T extends NilRawShape>(shape: T) => new NilObject({ shape });
 const enum_ = <
 	T extends NilNumber,
 	const O extends readonly string[] | string[]
@@ -787,10 +858,10 @@ export {
 	uint64,
 	float,
 	double,
-	string,
-	// array,
-	// object,
 	buffer,
+	string,
+	array,
+	// object,
 	enum_ as enum,
 	undefined_ as undefined
 };

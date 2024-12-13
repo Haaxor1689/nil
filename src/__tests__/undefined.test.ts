@@ -1,4 +1,5 @@
 import { expect, test, describe } from '@jest/globals';
+
 import { n } from '../index';
 
 describe('undefined', () => {

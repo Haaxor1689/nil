@@ -1,5 +1,6 @@
 import { expect, test, describe } from '@jest/globals';
-import { NilError, n } from '../index';
+
+import { n } from '../index';
 
 describe('transform', () => {
 	test('same type', async () => {
@@ -33,9 +34,8 @@ describe('transform', () => {
 			}
 		);
 
-		await expect(schema.toBuffer(42)).rejects.toThrow(NilError);
 		await expect(schema.toBuffer(42)).rejects.toThrow(
-			`Failed to transform: ${msg}`
+			`NilError: Failed to transform: ${msg}`
 		);
 	});
 
@@ -49,9 +49,8 @@ describe('transform', () => {
 		);
 
 		const buffer = new Uint8Array([0, 0, 0, 42]);
-		await expect(schema.fromBuffer(buffer)).rejects.toThrow(NilError);
 		await expect(schema.fromBuffer(buffer)).rejects.toThrow(
-			`Failed to transform: ${msg}`
+			`NilError: Failed to transform: ${msg}`
 		);
 	});
 });

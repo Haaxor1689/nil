@@ -1,5 +1,6 @@
 import { expect, test } from '@jest/globals';
-import { NilError, n } from '../index';
+
+import { n } from '../index';
 
 describe('boolean', () => {
 	test('true', async () => {
@@ -19,6 +20,16 @@ describe('boolean', () => {
 	test('invalid', async () => {
 		const schema = n.bool();
 		const buffer = new Uint8Array([2]);
-		await expect(schema.fromBuffer(buffer)).rejects.toThrow(NilError);
+		await expect(schema.fromBuffer(buffer)).rejects.toThrow(
+			'NilError: Invalid value 2 for a boolean'
+		);
+	});
+
+	test('fromBuffer throws when buffer is too small', async () => {
+		const schema = n.bool();
+		const smallBuffer = new Uint8Array([]);
+		await expect(schema.fromBuffer(smallBuffer)).rejects.toThrow(
+			'NilError: Not enough space to decode boolean, missing 1 byte(s)'
+		);
 	});
 });

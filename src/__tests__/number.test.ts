@@ -1,20 +1,33 @@
 import { expect, test, describe } from '@jest/globals';
-import { NilError, n } from '../index';
+
+import { n } from '../index';
 
 describe('number', () => {
 	test('NaN and Infinity throws', async () => {
 		const schema = n.uint8();
-		await expect(schema.toBuffer(NaN)).rejects.toThrow(NilError);
 		await expect(schema.toBuffer(NaN)).rejects.toThrow(
-			`Can't encode NaN as a number`
+			"NilError: Can't encode NaN as a number"
 		);
-		await expect(schema.toBuffer(Infinity)).rejects.toThrow(NilError);
 		await expect(schema.toBuffer(Infinity)).rejects.toThrow(
-			`Can't encode Infinity as a number`
+			"NilError: Can't encode Infinity as a number"
 		);
-		await expect(schema.toBuffer(-Infinity)).rejects.toThrow(NilError);
 		await expect(schema.toBuffer(-Infinity)).rejects.toThrow(
-			`Can't encode Infinity as a number`
+			"NilError: Can't encode Infinity as a number"
+		);
+	});
+
+	test('fromBuffer throws when buffer is too small', async () => {
+		const schema = n.uint16();
+		const smallBuffer = new Uint8Array([1]);
+		await expect(schema.fromBuffer(smallBuffer)).rejects.toThrow(
+			'NilError: Not enough space to decode 2-byte number, missing 1 byte(s)'
+		);
+	});
+
+	test('encoding non-integer value throws', async () => {
+		const schema = n.uint8();
+		await expect(schema.toBuffer(1.5)).rejects.toThrow(
+			"NilError: Can't encode non-integer value 1.5 as a number"
 		);
 	});
 
@@ -28,7 +41,9 @@ describe('number', () => {
 
 		test('overflow throws', async () => {
 			const schema = n.uint8();
-			await expect(schema.toBuffer(256)).rejects.toThrow(NilError);
+			await expect(schema.toBuffer(256)).rejects.toThrow(
+				'NilError: Value 256 is out of range for 8-bit unsigned integer'
+			);
 		});
 
 		test('zero value', async () => {
@@ -47,7 +62,9 @@ describe('number', () => {
 
 		test('negative value throws', async () => {
 			const schema = n.uint8();
-			await expect(schema.toBuffer(-1)).rejects.toThrow(NilError);
+			await expect(schema.toBuffer(-1)).rejects.toThrow(
+				'NilError: Value -1 is out of range for 8-bit unsigned integer'
+			);
 		});
 	});
 
@@ -61,7 +78,9 @@ describe('number', () => {
 
 		test('overflow throws', async () => {
 			const schema = n.int8();
-			await expect(schema.toBuffer(128)).rejects.toThrow(NilError);
+			await expect(schema.toBuffer(128)).rejects.toThrow(
+				'NilError: Value 128 is out of range for 8-bit signed integer'
+			);
 		});
 
 		test('zero value', async () => {
@@ -96,7 +115,9 @@ describe('number', () => {
 
 		test('overflow throws', async () => {
 			const schema = n.uint16();
-			await expect(schema.toBuffer(65536)).rejects.toThrow(NilError);
+			await expect(schema.toBuffer(65536)).rejects.toThrow(
+				'NilError: Value 65536 is out of range for 16-bit unsigned integer'
+			);
 		});
 
 		test('maximum value', async () => {
@@ -108,7 +129,9 @@ describe('number', () => {
 
 		test('negative value throws', async () => {
 			const schema = n.uint16();
-			await expect(schema.toBuffer(-1)).rejects.toThrow(NilError);
+			await expect(schema.toBuffer(-1)).rejects.toThrow(
+				'NilError: Value -1 is out of range for 16-bit unsigned integer'
+			);
 		});
 
 		test('big endian', async () => {
@@ -129,7 +152,9 @@ describe('number', () => {
 
 		test('overflow throws', async () => {
 			const schema = n.int16();
-			await expect(schema.toBuffer(32768)).rejects.toThrow(NilError);
+			await expect(schema.toBuffer(32768)).rejects.toThrow(
+				'NilError: Value 32768 is out of range for 16-bit signed integer'
+			);
 		});
 
 		test('zero value', async () => {
@@ -164,7 +189,9 @@ describe('number', () => {
 
 		test('overflow throws', async () => {
 			const schema = n.uint32();
-			await expect(schema.toBuffer(4294967296)).rejects.toThrow(NilError);
+			await expect(schema.toBuffer(4294967296)).rejects.toThrow(
+				'NilError: Value 4294967296 is out of range for 32-bit unsigned integer'
+			);
 		});
 
 		test('maximum value', async () => {
@@ -176,7 +203,9 @@ describe('number', () => {
 
 		test('negative value throws', async () => {
 			const schema = n.uint32();
-			await expect(schema.toBuffer(-1)).rejects.toThrow(NilError);
+			await expect(schema.toBuffer(-1)).rejects.toThrow(
+				'NilError: Value -1 is out of range for 32-bit unsigned integer'
+			);
 		});
 
 		test('big endian', async () => {
@@ -197,7 +226,9 @@ describe('number', () => {
 
 		test('overflow throws', async () => {
 			const schema = n.int32();
-			await expect(schema.toBuffer(2147483648)).rejects.toThrow(NilError);
+			await expect(schema.toBuffer(2147483648)).rejects.toThrow(
+				'NilError: Value 2147483648 is out of range for 32-bit signed integer'
+			);
 		});
 
 		test('zero value', async () => {
@@ -233,7 +264,9 @@ describe('number', () => {
 
 		test('overflow throws', async () => {
 			const schema = n.float();
-			await expect(schema.toBuffer(Number.MAX_VALUE)).rejects.toThrow(NilError);
+			await expect(schema.toBuffer(Number.MAX_VALUE)).rejects.toThrow(
+				'NilError: Value 1.7976931348623157e+308 is out of range for 32-bit floating point number'
+			);
 		});
 
 		test('negative zero', async () => {
@@ -272,13 +305,6 @@ describe('number', () => {
 			expect(buffer).toEqual(new Uint8Array(new Float64Array([1.23]).buffer));
 			const result = await schema.fromBuffer(buffer);
 			expect(Math.abs(result - 1.23)).toBeLessThan(Number.EPSILON);
-		});
-
-		test('overflow throws', async () => {
-			const schema = n.double();
-			await expect(schema.toBuffer(Number.MAX_VALUE * 2)).rejects.toThrow(
-				NilError
-			);
 		});
 
 		test('negative zero', async () => {

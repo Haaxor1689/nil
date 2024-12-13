@@ -1,4 +1,5 @@
 import { expect, test, describe } from '@jest/globals';
+
 import { n } from '../index';
 
 describe('buffer', () => {
@@ -34,6 +35,14 @@ describe('buffer', () => {
 				schema.toBuffer(new Uint8Array([1, 2, 3, 4, 5, 6]))
 			).rejects.toThrow(
 				'NilError: Buffer length 6 does not match expected length 5'
+			);
+		});
+
+		test('fromBuffer throws when buffer is too small', async () => {
+			const schema = n.buffer(5);
+			const smallBuffer = new Uint8Array([104, 101, 108]);
+			await expect(schema.fromBuffer(smallBuffer)).rejects.toThrow(
+				'NilError: Not enough space to decode 5-byte buffer, missing 2 byte(s)'
 			);
 		});
 	});

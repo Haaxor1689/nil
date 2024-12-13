@@ -1,4 +1,5 @@
 import { expect, test, describe } from '@jest/globals';
+
 import { n } from '../index';
 
 describe('enum', () => {
@@ -7,6 +8,14 @@ describe('enum', () => {
 		const buffer = await schema.toBuffer('B');
 		expect(buffer).toEqual(new Uint8Array([1]));
 		expect(await schema.fromBuffer(buffer)).toEqual('B');
+	});
+
+	test('fromBuffer throws when buffer is too small', async () => {
+		const schema = n.enum(n.uint16(), ['A', 'B', 'C']);
+		const smallBuffer = new Uint8Array([1]);
+		await expect(schema.fromBuffer(smallBuffer)).rejects.toThrow(
+			'NilError: Not enough space to decode 2-byte number, missing 1 byte(s)'
+		);
 	});
 
 	test('invalid value throws', async () => {

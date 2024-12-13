@@ -1,4 +1,5 @@
 import { expect, test, describe } from '@jest/globals';
+
 import { n } from '../index';
 
 describe('string', () => {
@@ -28,6 +29,14 @@ describe('string', () => {
 			const schema = n.string(5);
 			await expect(schema.toBuffer('hello world')).rejects.toThrow(
 				'NilError: String "hello world" wrong length to encode into 5 bits'
+			);
+		});
+
+		test('fromBuffer throws when buffer is too small', async () => {
+			const schema = n.string(5);
+			const smallBuffer = new Uint8Array([104, 101, 108]);
+			await expect(schema.fromBuffer(smallBuffer)).rejects.toThrow(
+				'NilError: Not enough space to decode 5-byte string, missing 2 byte(s)'
 			);
 		});
 	});
