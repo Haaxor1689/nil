@@ -9,10 +9,7 @@ import {
 	type ResolvePathFunc,
 	type addQuestionMarks,
 	type flatten,
-	formatPath,
-	getInt,
-	setInt,
-	getFloat
+	formatPath
 } from './util';
 
 export type NilRawShape = { [k: string]: NilTypeAny };
@@ -60,6 +57,7 @@ export abstract class NilType<Output = any, Def = object, Input = Output> {
 
 	async fromBuffer(buffer: Uint8Array): Promise<Output> {
 		const ctx: any = { path: [], buffer, offset: 0, _def: this._def };
+		ctx.view = new DataView(buffer.buffer);
 		ctx.size = this.size(ctx);
 		ctx.value = this._decode(ctx);
 		return this._afterDecode(ctx);
@@ -70,6 +68,7 @@ export abstract class NilType<Output = any, Def = object, Input = Output> {
 		ctx.value = await this._beforeEncode(ctx);
 		ctx.size = this.size(ctx);
 		ctx.buffer = new Uint8Array(ctx.size);
+		ctx.view = new DataView(ctx.buffer.buffer);
 		this._encode(ctx);
 		return ctx.buffer;
 	}
@@ -220,10 +219,10 @@ export class NilNumber extends NilType<number, NilNumberDef> {
 	}
 
 	_decode(ctx: DecodeContext<number, NilNumberDef>) {
-		const { buffer, offset } = ctx;
-		const { bytes, floating } = this._def;
+		const { view, offset } = ctx;
+		const { bytes, signed, floating, bigEndian: be } = this._def;
 
-		const missingBytes = offset + bytes - buffer.byteLength;
+		const missingBytes = offset + bytes - view.byteLength;
 		if (missingBytes > 0)
 			throw new NilError(
 				`Not enough space to decode ${bytes}-byte number, missing ${missingBytes} byte(s)`,
@@ -231,15 +230,40 @@ export class NilNumber extends NilType<number, NilNumberDef> {
 			);
 
 		if (floating) {
-			return getFloat(buffer, offset, this._def);
+			switch (bytes) {
+				case 4:
+					return view.getFloat32(offset, !be);
+				case 8:
+					return view.getFloat64(offset, !be);
+				default:
+					/* istanbul ignore next */
+					throw new NilError(
+						`Invalid byte size ${bytes} for a floating point number`,
+						ctx
+					);
+			}
 		}
 
-		return getInt(buffer, offset, this._def);
+		switch (bytes) {
+			case 1:
+				return signed ? view.getInt8(offset) : view.getUint8(offset);
+			case 2:
+				return signed
+					? view.getInt16(offset, !be)
+					: view.getUint16(offset, !be);
+			case 4:
+				return signed
+					? view.getInt32(offset, !be)
+					: view.getUint32(offset, !be);
+			case 8:
+				/* istanbul ignore next */
+				throw new NilError('For parsing 8 byte numbers us n.bigint', ctx);
+		}
 	}
 
 	_encode(ctx: ParseContext<number, NilNumberDef>) {
-		const { buffer, offset, value } = ctx;
-		const { bytes, signed, floating, bigEndian } = this._def;
+		const { view, offset, value } = ctx;
+		const { bytes, signed, floating, bigEndian: be } = this._def;
 
 		if (Number.isNaN(value))
 			throw new NilError(`Can't encode NaN as a number`, ctx);
@@ -263,13 +287,12 @@ export class NilNumber extends NilType<number, NilNumberDef> {
 				);
 			}
 
-			const view = new DataView(buffer.buffer, offset, bytes);
 			switch (bytes) {
 				case 4:
-					view.setFloat32(0, value, !bigEndian);
+					view.setFloat32(offset, value, !be);
 					return;
 				case 8:
-					view.setFloat64(0, value, !bigEndian);
+					view.setFloat64(offset, value, !be);
 					return;
 			}
 		}
@@ -296,7 +319,20 @@ export class NilNumber extends NilType<number, NilNumberDef> {
 			);
 		}
 
-		setInt(buffer, offset, value, this._def);
+		switch (bytes) {
+			case 1:
+				return signed
+					? view.setInt8(offset, value)
+					: view.setUint8(offset, value);
+			case 2:
+				return signed
+					? view.setInt16(offset, value, !be)
+					: view.setUint16(offset, value, !be);
+			case 4:
+				return signed
+					? view.setInt32(offset, value, !be)
+					: view.setUint32(offset, value, !be);
+		}
 	}
 
 	be() {
@@ -316,22 +352,23 @@ export class NilBigint extends NilType<bigint, NilBigintDef> {
 	}
 
 	_decode(ctx: DecodeContext<bigint, NilBigintDef>) {
-		const { buffer, offset } = ctx;
+		const { view, offset } = ctx;
 		const { signed, bigEndian: be } = this._def;
 
-		const missingBytes = offset + 8 - buffer.byteLength;
+		const missingBytes = offset + 8 - view.byteLength;
 		if (missingBytes > 0)
 			throw new NilError(
 				`Not enough space to decode 8-byte number, missing ${missingBytes} byte(s)`,
 				ctx
 			);
 
-		const view = new DataView(buffer.buffer, offset, 8);
-		return signed ? view.getBigInt64(0, !be) : view.getBigUint64(0, !be);
+		return signed
+			? view.getBigInt64(offset, !be)
+			: view.getBigUint64(offset, !be);
 	}
 
 	_encode(ctx: ParseContext<bigint, NilBigintDef>) {
-		const { buffer, offset, value } = ctx;
+		const { view, offset, value } = ctx;
 		const { signed, bigEndian: be } = this._def;
 
 		const bigintRanges = {
@@ -350,8 +387,9 @@ export class NilBigint extends NilType<bigint, NilBigintDef> {
 			);
 		}
 
-		const view = new DataView(buffer.buffer, offset, 8);
-		signed ? view.setBigInt64(0, value, !be) : view.setBigUint64(0, value, !be);
+		signed
+			? view.setBigInt64(offset, value, !be)
+			: view.setBigUint64(offset, value, !be);
 	}
 
 	be() {
@@ -559,7 +597,7 @@ class NilArray<T extends NilTypeAny> extends NilType<
 
 	_decode(ctx: DecodeContext<T['_input'][], NilArrayDef<T>>) {
 		const { schema } = this._def;
-		const { offset, buffer } = ctx;
+		const { offset, buffer, view } = ctx;
 
 		const value: T['_input'][] = [];
 
@@ -571,7 +609,7 @@ class NilArray<T extends NilTypeAny> extends NilType<
 		while (currentOffset < totalSize) {
 			const elemCtx = NilArray._elemCtx(idx, currentOffset, ctx);
 			const size = schema.size(elemCtx);
-			value.push(schema._decode({ ...elemCtx, buffer, size }));
+			value.push(schema._decode({ ...elemCtx, buffer, view, size }));
 			ctx.value = value;
 			currentOffset += size;
 			idx++;
@@ -582,7 +620,7 @@ class NilArray<T extends NilTypeAny> extends NilType<
 
 	_encode(ctx: ParseContext<T['_input'][], NilArrayDef<T>>) {
 		const { schema } = this._def;
-		const { offset, buffer } = ctx;
+		const { offset, buffer, view } = ctx;
 
 		const size = this.size(ctx);
 		const endOffset = size === -1 ? buffer.byteLength - offset : size;
@@ -597,7 +635,7 @@ class NilArray<T extends NilTypeAny> extends NilType<
 				);
 			const elemCtx = NilArray._elemCtx(i, currOffset, ctx);
 			const elemSize = schema.size(elemCtx);
-			schema._encode({ ...elemCtx, buffer, size: elemSize });
+			schema._encode({ ...elemCtx, buffer, view, size: elemSize });
 			currOffset += elemSize;
 			i++;
 		}
@@ -717,7 +755,7 @@ class NilObject<
 
 	_decode(ctx: DecodeContext<Input, NilObjectDef<T>>) {
 		const { shape } = this._def;
-		const { buffer } = ctx;
+		const { buffer, view } = ctx;
 
 		const value: Partial<Input> = {};
 
@@ -735,6 +773,7 @@ class NilObject<
 			value[key as keyof Input] = schema._decode({
 				...elemCtx,
 				buffer,
+				view,
 				size: elemSize
 			});
 			ctx.value = value as Input;
@@ -746,7 +785,7 @@ class NilObject<
 
 	_encode(ctx: ParseContext<Input, NilObjectDef<T>>) {
 		const { shape } = this._def;
-		const { buffer } = ctx;
+		const { buffer, view } = ctx;
 
 		let currOffset = 0;
 		Object.entries(shape).forEach(([key, schema]) => {
@@ -754,7 +793,7 @@ class NilObject<
 			if (elemCtx.value === undefined && !(schema instanceof NilUndefined))
 				throw new NilError(`Missing value for field ${key}`, ctx);
 			const elemSize = schema.size(elemCtx);
-			schema._encode({ ...elemCtx, buffer, size: elemSize });
+			schema._encode({ ...elemCtx, buffer, view, size: elemSize });
 			currOffset += elemSize;
 		});
 	}
