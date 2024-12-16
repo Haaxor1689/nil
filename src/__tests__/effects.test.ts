@@ -53,4 +53,24 @@ describe('transform', () => {
 			`NilError: Failed to transform: ${msg}`
 		);
 	});
+
+	test('resolvePath', async () => {
+		const schema = n.object({
+			a: n.uint8(),
+			b: n.uint8().transform(
+				(ctx, resolvePath) => {
+					const resolved = resolvePath<{ a: number }>([]);
+					return ctx.value + resolved.a;
+				},
+				(ctx, resolvePath) => {
+					const resolved = resolvePath<{ a: number }>([]);
+					return ctx.value - resolved.a;
+				}
+			)
+		});
+
+		const buffer = await schema.toBuffer({ a: 5, b: 10 });
+		expect(buffer).toEqual(new Uint8Array([5, 5]));
+		expect(await schema.fromBuffer(buffer)).toEqual({ a: 5, b: 10 });
+	});
 });

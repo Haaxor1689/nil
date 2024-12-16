@@ -143,7 +143,44 @@ describe('string', () => {
 	});
 
 	describe('path length', () => {
-		// TODO: Add after objects/arrays are done
+		test('default', async () => {
+			const schema = n.object({
+				a: n.uint8(),
+				b: n.string(['a'])
+			});
+			const buffer = await schema.toBuffer({ a: 5, b: 'hello' });
+			expect(buffer).toEqual(new Uint8Array([5, 104, 101, 108, 108, 111]));
+			expect(await schema.fromBuffer(buffer)).toEqual({ a: 5, b: 'hello' });
+		});
+
+		test('nested', async () => {
+			const schema = n.object({
+				a: n.object({ len: n.uint8() }),
+				b: n.object({ str: n.string(['..', 'a', 'len']) })
+			});
+			const buffer = await schema.toBuffer({
+				a: { len: 5 },
+				b: { str: 'hello' }
+			});
+			expect(buffer).toEqual(new Uint8Array([5, 104, 101, 108, 108, 111]));
+			expect(await schema.fromBuffer(buffer)).toEqual({
+				a: { len: 5 },
+				b: { str: 'hello' }
+			});
+		});
+
+		test('invalid', async () => {
+			const schema = n.object({
+				a: n.bool(),
+				b: n.string(['a'])
+			});
+			await expect(schema.toBuffer({ a: false, b: 'hello' })).rejects.toThrow(
+				'NilError: Invalid length false resolved from .a'
+			);
+			await expect(
+				schema.fromBuffer(new Uint8Array([0, 104, 101, 108, 108, 111]))
+			).rejects.toThrow('NilError: Invalid length false resolved from .a');
+		});
 	});
 
 	describe('unicode', () => {
