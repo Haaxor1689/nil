@@ -1,3 +1,5 @@
+# Nil
+
 TypeScript-first binary data parsing library with static type inference. Heavily inspired by [Zod](https://github.com/colinhacks/zod) and [Restructure](https://github.com/foliojs/restructure).
 
 ## Installation
@@ -26,6 +28,8 @@ const parsed = await mySchema.fromBuffer(buffer);
 Creating an object schema
 
 ```ts
+import { n } from '@haaxor1689/nil';
+
 const User = n.object({
 	username: n.string(4),
 	age: n.int8(),
@@ -38,7 +42,7 @@ type User = n.output<typeof User>;
 
 const buffer = await User.toBuffer({ username: 'Jane', age: 30, active: true });
 
-// Prase from Uint8Array
+// Parse from Uint8Array
 await User.fromBuffer(buffer);
 ```
 
@@ -152,7 +156,9 @@ n.array(n.int16(), 'fill');
 For strings specifically, you can choose the `'null-terminated'` length option to make them behave like c-strings.
 
 ```ts
-const buffer = new Uint8Array([104, 101, 108, 108, 111, 0, 119, 111, 114, 108, 100, 0]);
+const buffer = new Uint8Array([
+	104, 101, 108, 108, 111, 0, 119, 111, 114, 108, 100, 0
+]);
 
 n.string('fill').fromBuffer(buffer); // -> "hello\0world\0"
 n.string('null-terminated').fromBuffer(buffer); // -> "hello"
@@ -170,10 +176,10 @@ import { n } from '@haaxor1689/nil';
 // Size will be 256 bytes
 n.buffer(256).bytes();
 n.string(256).bytes();
-n.array(n.int8, 256).bytes();
+n.array(n.int8(), 256).bytes();
 ```
 
-> Trying to use `.bytes()` with `fill` or `null-terminated` length is not supported and will throw and error.
+> Trying to use `.bytes()` with `fill` or `null-terminated` length is not supported and will throw an error.
 
 ## Enums
 
@@ -246,8 +252,8 @@ All Nil schemas contain these methods.
 
 ```ts
 .transform(
-  afterDecode: (ctx: ParseContext<Input>) => Promise<Output> | Output,
-  beforeEncode: (ctx: EncodeContext<Output>) => Promise<Input> | Input
+  afterDecode: (ctx: TransformContext<Input>, resolvePath: <T = unknown>(path: ParsePath) => T) => Promise<Output> | Output,
+  beforeEncode: (ctx: TransformContext<Output>, resolvePath: <T = unknown>(path: ParsePath) => T) => Promise<Input> | Input
 )
 ```
 
@@ -268,13 +274,13 @@ const MySchema = n
 	);
 
 // Inferred output type is `number[]`
-type MySchema = z.output<typeof MySchema>;
+type MySchema = n.output<typeof MySchema>;
 
 // Resulting buffer will start with correct `itemCount` number
 await MySchema.toBuffer([1, 2, 3, 4]);
 ```
 
-You can also access the current context when creating transformations to reference other attributes from the parent type (if any). The easiest way to do this is by using the `resolvePath` helper function.
+You can also access the current context when creating transformations to reference other attributes from the parent type (if any). The easiest way to do this is by using the `resolvePath` helper function that's provided as the second argument to transform functions:
 
 ```ts
 import { n } from '@haaxor1689/nil';
@@ -282,12 +288,12 @@ import { n } from '@haaxor1689/nil';
 const MySchema = n.object({
 	hasAlpha: n.bool(),
 	data: n.array(n.int8(), 'fill').transform(
-		ctx => {
-			n.resolvePath(['hasAlpha'], ctx); // will hold value of `hasAlpha` attribute from parent object
+		(ctx, resolvePath) => {
+			const hasAlpha = resolvePath<boolean>(['hasAlpha']); // will hold value of `hasAlpha` attribute from parent object
 			return ctx.value;
 		},
-		ctx => {
-			n.resolvePath(['hasAlpha'], ctx); // will hold value of `hasAlpha` attribute from parent object
+		(ctx, resolvePath) => {
+			const hasAlpha = resolvePath<boolean>(['hasAlpha']); // will hold value of `hasAlpha` attribute from parent object
 			return ctx.value;
 		}
 	)
@@ -300,7 +306,7 @@ const MySchema = n.object({
 .fromBuffer(data: Uint8Array): Promise<Output>
 ```
 
-Tries to parse given buffer into output type of used schema. Throws errors on failure.
+Tries to parse given buffer into output type of used schema. Throws `NilError` on failure.
 
 ### `.toBuffer`
 
@@ -308,11 +314,41 @@ Tries to parse given buffer into output type of used schema. Throws errors on fa
 .toBuffer(value: Output): Promise<Uint8Array>
 ```
 
-Tries to serialize a given object into a buffer.
+Tries to serialize a given object into a buffer. Throws `NilError` on failure.
+
+## Error Handling
+
+Nil provides a custom `NilError` class that includes context information when parsing fails:
+
+```ts
+import { n } from '@haaxor1689/nil';
+
+try {
+	await MySchema.fromBuffer(invalidBuffer);
+} catch (error) {
+	if (error instanceof n.NilError) {
+		console.error(
+			`Error at path ${formatPath(error.ctx.path)}: ${error.message}`
+		);
+	}
+}
+```
+
+## Type Utilities
+
+Nil provides several type utilities:
+
+```ts
+import { n } from '@haaxor1689/nil';
+
+// Get the TypeScript type for the output of a schema
+type Output = n.output<typeof mySchema>;
+
+// Get the TypeScript type for the input of a schema
+type Input = n.input<typeof mySchema>;
+```
 
 ## TODO
 
 - Literal types
 - Unions
-- Don't allow smaller arrays than their defined constant size
-- Tests

@@ -14,7 +14,6 @@ import {
 
 export type NilRawShape = { [k: string]: NilTypeAny };
 export type NilTypeAny = NilType<any, any>;
-export type TypeOf<T extends NilType<any, any, any>> = T['_output'];
 export type input<T extends NilType<any, any, any>> = T['_input'];
 export type output<T extends NilType<any, any, any>> = T['_output'];
 
