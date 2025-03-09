@@ -28,7 +28,6 @@ jobs:
 
       - name: Build
         run: |
-          yarn clean
           yarn build
 
       - id: publish
