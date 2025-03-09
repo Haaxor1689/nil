@@ -156,7 +156,7 @@ describe('string', () => {
 		test('nested', async () => {
 			const schema = n.object({
 				a: n.object({ len: n.uint8() }),
-				b: n.object({ str: n.string(['..', 'a', 'len']) })
+				b: n.object({ str: n.string(['^', 'a', 'len']) })
 			});
 			const buffer = await schema.toBuffer({
 				a: { len: 5 },

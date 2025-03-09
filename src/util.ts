@@ -67,5 +67,5 @@ export class NilError extends Error {
 
 export const formatPath = (path: ParsePath) =>
 	path
-		.map(p => (typeof p !== 'string' ? `[${p}]` : p === '..' ? '.^' : `.${p}`))
+		.map(p => (typeof p !== 'string' ? `[${p}]` : p === '~' ? '~' : `.${p}`))
 		.join('');

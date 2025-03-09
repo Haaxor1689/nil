@@ -82,7 +82,7 @@ describe('object', () => {
 		test('nested', async () => {
 			const schema = n.object({
 				a: n.object({ len: n.uint8() }),
-				b: n.object({ str: n.string(['..', 'a', 'len']) })
+				b: n.object({ str: n.string(['^', 'a', 'len']) })
 			});
 			const buffer = await schema.toBuffer({
 				a: { len: 5 },
@@ -111,7 +111,7 @@ describe('object', () => {
 		test('invalid parent', async () => {
 			const schema = n.object({
 				a: n.uint8(),
-				b: n.string(['..'])
+				b: n.string(['^'])
 			});
 			await expect(schema.toBuffer({ a: 5, b: 'hello' })).rejects.toThrow(
 				'NilError: Failed to resolve .^, no parent found'
@@ -160,7 +160,7 @@ describe('object', () => {
 
 		test('wrong order nested', async () => {
 			const schema = n.object({
-				a: n.object({ str: n.string(['..', 'b', 'len']) }),
+				a: n.object({ str: n.string(['^', 'b', 'len']) }),
 				b: n.object({ len: n.uint8() })
 			});
 			await expect(

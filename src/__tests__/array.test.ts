@@ -76,7 +76,7 @@ describe('array', () => {
 		test('nested', async () => {
 			const schema = n.object({
 				a: n.object({ len: n.uint8() }),
-				b: n.object({ arr: n.array(n.uint8(), ['..', 'a', 'len']) })
+				b: n.object({ arr: n.array(n.uint8(), ['^', 'a', 'len']) })
 			});
 			const buffer = await schema.toBuffer({
 				a: { len: 3 },
@@ -105,7 +105,7 @@ describe('array', () => {
 		test('invalid parent', async () => {
 			const schema = n.object({
 				a: n.uint8(),
-				b: n.array(n.uint8(), ['..'])
+				b: n.array(n.uint8(), ['^'])
 			});
 			await expect(schema.toBuffer({ a: 3, b: [1, 2, 3] })).rejects.toThrow(
 				'NilError: Failed to resolve .^, no parent found'
@@ -134,7 +134,7 @@ describe('array', () => {
 
 		test('wrong order nested', async () => {
 			const schema = n.object({
-				a: n.object({ arr: n.array(n.uint8(), ['..', 'b', 'len']) }),
+				a: n.object({ arr: n.array(n.uint8(), ['^', 'b', 'len']) }),
 				b: n.object({ len: n.uint8() })
 			});
 			await expect(
@@ -206,7 +206,7 @@ describe('array', () => {
 		test('nested', async () => {
 			const schema = n.object({
 				a: n.object({ arr: n.array(n.uint8(), 3) }),
-				b: n.object({ arr: n.array(n.uint8(), ['..', 'a', 'arr', 0]) })
+				b: n.object({ arr: n.array(n.uint8(), ['^', 'a', 'arr', 0]) })
 			});
 			const buffer = await schema.toBuffer({
 				a: { arr: [3, 2, 1] },
@@ -233,7 +233,7 @@ describe('array', () => {
 		});
 
 		test('invalid parent', async () => {
-			const schema = n.array(n.array(n.uint8(), ['..']), 1);
+			const schema = n.array(n.array(n.uint8(), ['^']), 1);
 			await expect(schema.toBuffer([[1, 2, 3]])).rejects.toThrow(
 				'NilError: Failed to resolve .^, no parent found'
 			);
@@ -273,7 +273,7 @@ describe('array', () => {
 
 		test('wrong order nested', async () => {
 			const schema = n.array(
-				n.object({ arr: n.array(n.uint8(), ['..', 1, 'arr', 3]) }),
+				n.object({ arr: n.array(n.uint8(), ['^', 1, 'arr', 3]) }),
 				2
 			);
 			await expect(

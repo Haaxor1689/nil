@@ -138,7 +138,7 @@ n.object({
 	itemCount: n.int16(),
 	items: n.array(
 		n.object({
-			color: n.array(n.uint8(), ['..', '..', 'channels'])
+			color: n.array(n.uint8(), ['^', '^', 'channels'])
 		}),
 		['itemCount']
 	)
@@ -300,13 +300,42 @@ const MySchema = n.object({
 });
 ```
 
+Below are more examples of how `resolvePath` can be used:
+
+```ts
+import { n } from '@haaxor1689/nil';
+
+const MySchema = n.object({
+	id: n.uint16(),
+	data: n.object({
+		frames: n.array(n.int8(), 20)
+		data: n.array(n.int8(), 20).transform(
+			(ctx, resolvePath) => {
+				resolvePath<{ frames: number[] }>([]); // Resolving starts from the immediate parent element
+				resolvePath<{ id: number }>(['^']); // Use "^" to resolve further up the tree
+				resolvePath<{ id: number }>(['~']); // Use "~" to start resolving from the root
+				resolvePath<number[]>(['frames']); // Use string to resolve object keys
+				resolvePath<number>(['frames', 0]); // Use number to resolve array entries
+
+				// Throws NilError!
+				resolvePath(['^', 'flags']); // You can only resolve paths that were already decoded
+
+				return ctx.value;
+			},
+			(ctx, resolvePath) => ctx.value
+		)
+	}),
+	flags: n.uint16()
+});
+```
+
 ### `.fromBuffer`
 
 ```ts
-.fromBuffer(data: Uint8Array): Promise<Output>
+.fromBuffer(data: Uint8Array, offset?: number): Promise<Output>
 ```
 
-Tries to parse given buffer into output type of used schema. Throws `NilError` on failure.
+Tries to parse given buffer into output type of used schema. Throws `NilError` on failure. You can also pass an initial offset to start decoding from.
 
 ### `.toBuffer`
 
@@ -328,7 +357,7 @@ try {
 } catch (error) {
 	if (error instanceof n.NilError) {
 		console.error(
-			`Error at path ${formatPath(error.ctx.path)}: ${error.message}`
+			`Error at path ${n.formatPath(error.ctx.path)}: ${error.message}`
 		);
 	}
 }

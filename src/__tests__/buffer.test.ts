@@ -135,7 +135,7 @@ describe('buffer', () => {
 		test('nested', async () => {
 			const schema = n.object({
 				a: n.object({ len: n.uint8() }),
-				b: n.object({ buf: n.buffer(['..', 'a', 'len']) })
+				b: n.object({ buf: n.buffer(['^', 'a', 'len']) })
 			});
 			const buffer = await schema.toBuffer({
 				a: { len: 5 },
@@ -164,7 +164,7 @@ describe('buffer', () => {
 		test('invalid parent', async () => {
 			const schema = n.object({
 				a: n.uint8(),
-				b: n.buffer(['..'])
+				b: n.buffer(['^'])
 			});
 			await expect(
 				schema.toBuffer({ a: 5, b: new Uint8Array([1, 2, 3, 4, 5]) })
@@ -197,7 +197,7 @@ describe('buffer', () => {
 
 		test('wrong order nested', async () => {
 			const schema = n.object({
-				a: n.object({ buf: n.buffer(['..', 'b', 'len']) }),
+				a: n.object({ buf: n.buffer(['^', 'b', 'len']) }),
 				b: n.object({ len: n.uint8() })
 			});
 			await expect(

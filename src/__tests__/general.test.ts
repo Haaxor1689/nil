@@ -53,8 +53,10 @@ describe('transform', () => {
 			`NilError: Failed to transform: ${msg}`
 		);
 	});
+});
 
-	test('resolvePath', async () => {
+describe('resolvePath', () => {
+	test('relative', async () => {
 		const schema = n.object({
 			a: n.uint8(),
 			b: n.uint8().transform(
@@ -72,5 +74,36 @@ describe('transform', () => {
 		const buffer = await schema.toBuffer({ a: 5, b: 10 });
 		expect(buffer).toEqual(new Uint8Array([5, 5]));
 		expect(await schema.fromBuffer(buffer)).toEqual({ a: 5, b: 10 });
+	});
+
+	test('absolute', async () => {
+		const schema = n.object({
+			a: n.uint8(),
+			b: n.object({
+				foo: n.uint8().transform(
+					(ctx, resolvePath) => {
+						const resolved = resolvePath<{ a: number }>(['~']);
+						return ctx.value + resolved.a;
+					},
+					(ctx, resolvePath) => {
+						const resolved = resolvePath<{ a: number }>(['~']);
+						return ctx.value - resolved.a;
+					}
+				)
+			})
+		});
+
+		const buffer = await schema.toBuffer({ a: 5, b: { foo: 10 } });
+		expect(buffer).toEqual(new Uint8Array([5, 5]));
+		expect(await schema.fromBuffer(buffer)).toEqual({ a: 5, b: { foo: 10 } });
+	});
+});
+
+describe('fromBuffer', () => {
+	test('with offset', async () => {
+		const schema = n.int8();
+
+		const buffer = new Uint8Array([0, 0, 0, 42]);
+		expect(await schema.fromBuffer(buffer, 3)).toEqual(42);
 	});
 });

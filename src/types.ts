@@ -12,6 +12,8 @@ import {
 	formatPath
 } from './util';
 
+export { formatPath } from './util';
+
 export type NilRawShape = { [k: string]: NilTypeAny };
 export type NilTypeAny = NilType<any, any>;
 export type input<T extends NilType<any, any, any>> = T['_input'];
@@ -54,8 +56,8 @@ export abstract class NilType<Output = any, Def = object, Input = Output> {
 		return ctx.value as never;
 	}
 
-	async fromBuffer(buffer: Uint8Array): Promise<Output> {
-		const ctx: any = { path: [], buffer, offset: 0, _def: this._def };
+	async fromBuffer(buffer: Uint8Array, offset = 0): Promise<Output> {
+		const ctx: any = { path: [], buffer, offset, _def: this._def };
 		ctx.view = new DataView(buffer.buffer);
 		ctx.size = this.size(ctx);
 		ctx.value = this._decode(ctx);
@@ -75,7 +77,13 @@ export abstract class NilType<Output = any, Def = object, Input = Output> {
 	_resolvePath(path: ParsePath, ctx: SizeContext) {
 		let relativeCtx: SizeContext | undefined = ctx;
 		let relativePath = path;
-		while (relativePath[0] === '..') {
+
+		if (relativePath[0] === '~') {
+			while (relativeCtx?.parent?.parent) relativeCtx = relativeCtx.parent;
+			relativePath = relativePath.slice(1);
+		}
+
+		while (relativePath[0] === '^') {
 			relativeCtx = relativeCtx?.parent;
 			relativePath = relativePath.slice(1);
 		}
@@ -107,7 +115,7 @@ export type NilEffectsDef<T extends NilTypeAny = NilTypeAny> = {
 	transform: TransformType<any, any>;
 };
 
-class NilEffects<
+export class NilEffects<
 	T extends NilTypeAny,
 	Output = output<T>,
 	Input = input<T>
@@ -205,7 +213,7 @@ export class NilBool extends NilType<boolean> {
 	}
 }
 
-type NilNumberDef = {
+export type NilNumberDef = {
 	bytes: 1 | 2 | 4 | 8;
 	signed?: boolean;
 	floating?: boolean;
@@ -340,7 +348,7 @@ export class NilNumber extends NilType<number, NilNumberDef> {
 	}
 }
 
-type NilBigintDef = {
+export type NilBigintDef = {
 	signed?: boolean;
 	bigEndian?: boolean;
 };
@@ -397,12 +405,12 @@ export class NilBigint extends NilType<bigint, NilBigintDef> {
 	}
 }
 
-type NilBufferDef = {
+export type NilBufferDef = {
 	length: number | ParsePath | 'fill';
 	inBytes?: boolean;
 };
 
-class NilBuffer extends NilType<Uint8Array, NilBufferDef> {
+export class NilBuffer extends NilType<Uint8Array, NilBufferDef> {
 	size(ctx: SizeContext<Uint8Array, NilBufferDef>) {
 		const { length, inBytes } = this._def;
 		const { buffer, offset, value } = ctx;
@@ -457,7 +465,7 @@ class NilBuffer extends NilType<Uint8Array, NilBufferDef> {
 	}
 }
 
-type NilStringDef = {
+export type NilStringDef = {
 	length: number | ParsePath | 'fill' | 'null-terminated';
 	inBytes?: boolean;
 };
@@ -541,7 +549,7 @@ export type NilArrayDef<T extends NilTypeAny = NilTypeAny> = {
 	_resolvePath: typeof NilArray._resolvePath;
 };
 
-class NilArray<T extends NilTypeAny> extends NilType<
+export class NilArray<T extends NilTypeAny> extends NilType<
 	T['_output'][],
 	NilArrayDef<T>,
 	T['_input'][]
@@ -735,7 +743,7 @@ export type NilObjectDef<T extends NilRawShape = NilRawShape> = {
 	_resolvePath: typeof NilObject._resolvePath;
 };
 
-class NilObject<
+export class NilObject<
 	T extends NilRawShape,
 	Output = objectOutputType<T>,
 	Input = Output
@@ -945,6 +953,48 @@ export class NilEnum<
 		return this._def.options;
 	}
 }
+
+// type NilRefShape = {
+// 	offset: NilNumber;
+// 	[k: string]: NilTypeAny;
+// };
+
+// type NilRefDef<
+// 	T extends NilTypeAny = NilTypeAny,
+// 	THead extends NilObject<NilRefShape> = NilObject<NilRefShape>
+// > = {
+// 	schema: T;
+// 	header: THead;
+// };
+
+// export class NilRef<
+// 	T extends NilTypeAny,
+// 	Output = output<T>,
+// 	Input = input<T>
+// > extends NilType<Output, NilRefDef<T>, Input> {
+// 	size(ctx: SizeContext<Input, NilRefDef<T>>) {
+// 		return this._def.header.size({
+// 			...ctx,
+// 			_def: this._def.header._def
+// 		} as never);
+// 	}
+
+// 	_decode(ctx: DecodeContext<Input, NilRefDef<T>>) {
+// 		return this._def.schema._decode({ ...ctx, _def: this._def.schema._def });
+// 	}
+
+// 	_encode(ctx: ParseContext<Input, NilRefDef<T>>) {
+// 		this._def.schema._encode({ ...ctx, _def: this._def.schema._def });
+// 	}
+
+// 	transform<NewOutput>(
+// 		..._: TransformType<NewOutput, Input>
+// 	): NilEffects<this, NewOutput, Input> {
+// 		throw Error(
+// 			'Transforms are not supported on references. Please transform the referenced schema instead.'
+// 		);
+// 	}
+// }
 
 export class NilUndefined extends NilType<undefined> {
 	size() {
