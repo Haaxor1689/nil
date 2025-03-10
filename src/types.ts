@@ -12,8 +12,6 @@ import {
 	formatPath
 } from './util';
 
-export { formatPath } from './util';
-
 export type NilRawShape = { [k: string]: NilTypeAny };
 export type NilTypeAny = NilType<any, any>;
 export type input<T extends NilType<any, any, any>> = T['_input'];
