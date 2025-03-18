@@ -952,6 +952,49 @@ export class NilEnum<
 	}
 }
 
+export type NilFlagsDef<
+	T extends NilNumber,
+	O extends readonly string[] | string[]
+> = {
+	type: T;
+	options: O;
+};
+
+export class NilFlags<
+	T extends NilNumber,
+	O extends readonly string[] | string[]
+> extends NilType<O, NilEnumDef<T, O>, T['_input']> {
+	size() {
+		return this._def.type.size();
+	}
+
+	_decode(ctx: DecodeContext<T['_input'], NilEnumDef<T, O>>) {
+		return this._def.type._decode({ ...ctx, _def: ctx._def.type._def });
+	}
+
+	_encode(ctx: ParseContext<T['_input'], NilEnumDef<T, O>>) {
+		this._def.type._encode({ ...ctx, _def: ctx._def.type._def });
+	}
+
+	async _afterDecode(ctx: TransformContext<T['_input'], NilEnumDef<T, O>>) {
+		const { value } = ctx;
+		return this._def.options
+			.map((f, i) => (value & Math.pow(i, 2) ? f : undefined))
+			.filter(v => v !== undefined) as O;
+	}
+
+	async _beforeEncode(ctx: TransformContext<O, NilEnumDef<T, O>>) {
+		const { value } = ctx;
+		return this._def.options
+			.map((f, i) => (value.includes(f) ? Math.pow(i, 2) : 0))
+			.reduce((a, b) => a + b, 0);
+	}
+
+	get options() {
+		return this._def.options;
+	}
+}
+
 // type NilRefShape = {
 // 	offset: NilNumber;
 // 	[k: string]: NilTypeAny;
